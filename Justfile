@@ -487,6 +487,72 @@ chunkify image_ref:
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"
     fi
 
+# ── bcvk (fast VM testing) ───────────────────────────────────────────
+
+# Ensure bcvk is installed (auto-installs via cargo if missing)
+_ensure-bcvk:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v bcvk &>/dev/null; then
+        exit 0
+    fi
+    echo "bcvk not found. Attempting to install via cargo..."
+    if command -v cargo &>/dev/null; then
+        cargo install --locked --git https://github.com/bootc-dev/bcvk bcvk
+    else
+        echo "ERROR: bcvk is not installed and cargo is not available for auto-install." >&2
+        echo "" >&2
+        echo "Install bcvk manually:" >&2
+        echo "  Cargo:       cargo install --locked --git https://github.com/bootc-dev/bcvk bcvk" >&2
+        echo "  Fedora 42+:  sudo dnf install bcvk" >&2
+        echo "" >&2
+        echo "Also ensure qemu-kvm and virtiofsd are installed on the host." >&2
+        exit 1
+    fi
+
+# Boot the built image instantly in an ephemeral VM via bcvk.
+# No disk image needed -- boots directly from the container via virtiofs.
+# Requires: bcvk, qemu-kvm, virtiofsd (sudo dnf install bcvk qemu-kvm virtiofsd)
+[group('test')]
+boot-fast: _ensure-bcvk
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    if ! $SUDO_CMD podman image exists "{{image_name}}:{{image_tag}}"; then
+        echo "ERROR: Image '{{image_name}}:{{image_tag}}' not found in podman." >&2
+        echo "Run 'just build' first to build and export the OCI image." >&2
+        exit 1
+    fi
+
+    echo "==> Booting {{image_name}}:{{image_tag}} in ephemeral VM (bcvk)..."
+    echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
+    echo "    No disk image -- boots directly via virtiofs"
+    echo ""
+    $SUDO_CMD bcvk ephemeral run-ssh \
+        --memory "{{vm_ram}}M" \
+        --vcpus "{{vm_cpus}}" \
+        "localhost/{{image_name}}:{{image_tag}}"
+
+# Inspect the built bootc image.
+[group('info')]
+inspect: _ensure-bcvk
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    $SUDO_CMD bcvk images list
+
 # ── Lint ─────────────────────────────────────────────────────────────
 [group('test')]
 lint:
