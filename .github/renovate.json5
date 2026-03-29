@@ -4,6 +4,12 @@
     "config:best-practices"
   ],
 
+  // Use GitHub-native automerge (merge queue/auto-merge).
+  // Renovate marks eligible PRs for automerge; branch rules decide final merge.
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": true,
+
   // Don't rebase PRs when main changes -- reduces churn
   "rebaseWhen": "never",
 
@@ -14,7 +20,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/\\.github/workflows/build-dakota\\.yml$/",
+        "/\\.github/workflows/build\\.yml$/",
         "/\\.github/workflows/track-bst-sources\\.yml$/",
         "/^Justfile$/"
       ],
@@ -57,39 +63,13 @@
   ],
 
   "packageRules": [
-    // ── Auto-merge: all pin and digest updates ──
+    // ── Auto-merge: all dependency updates managed by this repo config ──
     {
       "automerge": true,
-      "matchUpdateTypes": ["pin", "pinDigest", "digest"]
-    },
-
-    // ── Auto-merge: patch updates for CI tooling ──
-    {
-      "automerge": true,
-      "matchUpdateTypes": ["patch"],
-      "matchDepNames": [
-        "actions/checkout",
-        "actions/cache",
-        "actions/upload-artifact",
-        "ublue-os/remove-unwanted-software"
+      "matchManagers": [
+        "github-actions",
+        "custom.regex"
       ]
-    },
-
-    // ── Manual merge: BuildStream plugins (always review) ──
-    {
-      "automerge": false,
-      "groupName": "BuildStream plugins",
-      "matchDepNames": [
-        "buildstream-plugins",
-        "buildstream-plugins-community",
-        "buildstream_plugins_community"
-      ]
-    },
-
-    // ── Manual merge: nerd-fonts (always review) ──
-    {
-      "automerge": false,
-      "matchDepNames": ["ryanoasis/nerd-fonts"]
     },
 
     // ── Group: all GitHub Actions together ──

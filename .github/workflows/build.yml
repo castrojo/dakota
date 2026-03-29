@@ -6,6 +6,8 @@ on:
     paths-ignore: ["**/*.md"]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -15,17 +17,15 @@ env:
 # Only one build at a time. If a manual dispatch arrives while a scheduled
 # build is running, the in-progress run is cancelled.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
-      # FIXME: Make the build with JWT work
-      # id-token: write
       contents: read
-      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -209,7 +209,153 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # ── Publish to GHCR ───────────────────────────────────────────────
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Just
+        uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+
+      - name: Capture build timestamp
+        id: timestamp
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Generate BuildStream CI config
+        env:
+          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
+          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+        run: |
+          mkdir -p logs
+
+          # Setup certificate for pushing to the cache
+          echo "$CASD_CLIENT_CERT" > client.crt
+          echo "$CASD_CLIENT_KEY" > client.key
+          cat > buildstream-ci.conf <<'BSTCONF'
+          scheduler:
+            on-error: continue
+            fetchers: 32
+            builders: 4
+            network-retries: 3
+
+          logging:
+            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
+            error-lines: 80
+
+          cachedir: /srv/cache
+          logdir: /srv/logs
+
+          build:
+            retry-failed: True
+
+          BSTCONF
+
+          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_ΚΕΥ" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
+          artifacts:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          source-caches:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          cache:
+            storage-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+          BSTCONFPUSH
+          fi
+
+          echo "=== BuildStream CI config ==="
+          cat buildstream-ci.conf
+
+      - name: Build OCI image with BuildStream
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+        run: |
+          just bst build oci/bluefin.bst
+        timeout-minutes: 120
+
+      - name: Export OCI image from BuildStream
+        id: export
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
+          OCI_IMAGE_REVISION: ${{ github.sha }}
+          OCI_IMAGE_VERSION: latest
+        run: |
+          just export
+          echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Verify image loaded
+        run: sudo podman images
+
+      - name: Validate with bootc container lint
+        run: |
+           just lint
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: buildstream-logs
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Login to GHCR
         run: |
