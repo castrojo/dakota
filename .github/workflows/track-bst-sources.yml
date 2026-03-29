@@ -33,7 +33,6 @@ jobs:
           - group: auto-merge
             branch: auto/track-bluefin-sources
             title: "chore(deps): track Bluefin element sources"
-            auto_merge: true
             elements: >-
               bluefin/brew.bst
               bluefin/common.bst
@@ -47,7 +46,6 @@ jobs:
           - group: manual-merge
             branch: auto/track-core-sources
             title: "chore(deps): track core and junction sources"
-            auto_merge: false
             elements: >-
               gnome-build-meta.bst
               freedesktop-sdk.bst
@@ -139,11 +137,8 @@ jobs:
 
           echo "Created PR: $PR_URL"
 
-          # Enable auto-merge if configured
-          if [ "${{ matrix.auto_merge }}" = "true" ]; then
-            echo "Enabling auto-merge..."
-            gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
-          fi
+          echo "Enabling auto-merge..."
+          gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
 
   track-tarballs:
     runs-on: ubuntu-24.04
@@ -298,3 +293,5 @@ jobs:
           )")
 
           echo "Created PR: $PR_URL"
+          echo "Enabling auto-merge..."
+          gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"

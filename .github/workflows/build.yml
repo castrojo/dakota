@@ -6,6 +6,8 @@ on:
     paths-ignore: ["**/*.md"]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -15,15 +17,13 @@ env:
 # Only one build at a time. If a manual dispatch arrives while a scheduled
 # build is running, the in-progress run is cancelled.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
-      # FIXME: Make the build with JWT work
-      # id-token: write
       contents: read
       packages: write
     steps:
@@ -84,7 +84,7 @@ jobs:
 
           BSTCONF
 
-          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_ΚΕΥ" ]]; then
+          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
             cat >> buildstream-ci.conf <<'BSTCONFPUSH'
           artifacts:
             servers:
@@ -209,14 +209,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # ── Publish to GHCR ───────────────────────────────────────────────
-
       - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
 
       - name: Tag image for GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
@@ -224,6 +224,7 @@ jobs:
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
       - name: Push to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           for tag in latest "${{ github.sha }}"; do
             for i in 1 2 3; do
