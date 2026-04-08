@@ -4,5 +4,5 @@ kind: manual
 
 sources:
   - kind: tar
-    url: tailscale_pkgs:tailscale_1.94.2_arm64.tgz
-    ref: 76300e808c57eb7853090d69c8bd8806e86341862e244183f6611f9105799bba
+    url: tailscale_pkgs:tailscale_1.96.4_arm64.tgz
+    ref: a27249bc70d7b37a68f8be7f5c4507ea5f354e592dce43cb5d4f3e742b313c3c
