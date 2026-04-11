@@ -88,8 +88,8 @@ jobs:
             message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
             error-lines: 80
 
-          cachedir: /srv/cache
-          logdir: /srv/logs
+          cachedir: /root/.cache/buildstream
+          logdir: /src/logs
 
           build:
             retry-failed: True
