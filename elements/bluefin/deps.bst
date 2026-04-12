@@ -9,6 +9,7 @@ depends:
   - bluefin/brew-tarball/brew-tarball.bst
 
   - bluefin/tailscale/tailscale.bst
+  - bluefin/uupd.bst
 
   - bluefin/1password-cli/1password-cli.bst
   - bluefin/1password/1password.bst
