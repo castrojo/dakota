@@ -12,8 +12,6 @@
   </picture>
 </a>
 
-![Dakorator](https://github.com/user-attachments/assets/ee92291d-a617-496e-abb6-9045a4c665ce)
-
 ## Status
 
 - Alpha, public testing and [filing issues is appreciated](https://github.com/projectbluefin/dakota/issues)!
@@ -157,12 +155,4 @@ patches/             Patches applied to upstream projects
 Justfile             All build commands
 ```
 
-## Roadmap
-
-These features are planned but not yet implemented:
-
-- **`just preflight`** -- automated prerequisite checking with Homebrew auto-install
-- **Local OTA updates** -- `just registry-start` / `just publish` for iterative VM updates via `bootc upgrade`
-- **`just add-package <url>`** -- scaffolding a new package element from a GitHub release URL
-- **Rebranding guide** -- documentation for people who want to change the image name/identity
-- **Multi-arch builds** -- aarch64 support
+![Dakorator](https://github.com/user-attachments/assets/ee92291d-a617-496e-abb6-9045a4c665ce)
