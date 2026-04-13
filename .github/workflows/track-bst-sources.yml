@@ -30,26 +30,64 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ── auto-merge: Bluefin packages ──
           - group: auto-merge
-            branch: auto/track-bluefin-sources
-            title: "chore(deps): track Bluefin element sources"
-            elements: >-
-              bluefin/brew.bst
-              bluefin/common.bst
-              bluefin/jetbrains-mono.bst
-              bluefin/shell-extensions/app-indicators.bst
-              bluefin/shell-extensions/blur-my-shell.bst
-              bluefin/shell-extensions/dash-to-dock.bst
-              bluefin/shell-extensions/gsconnect.bst
-              bluefin/shell-extensions/search-light.bst
-              bluefin/shell-extensions/custom-command-menu.bst
+            element: bluefin/brew.bst
+            branch: auto/track-brew
+            title: "chore(deps): update brew"
+          - group: auto-merge
+            element: bluefin/common.bst
+            branch: auto/track-common
+            title: "chore(deps): update common"
+          - group: auto-merge
+            element: bluefin/jetbrains-mono.bst
+            branch: auto/track-jetbrains-mono
+            title: "chore(deps): update jetbrains-mono"
+          - group: auto-merge
+            element: bluefin/shell-extensions/app-indicators.bst
+            branch: auto/track-app-indicators
+            title: "chore(deps): update app-indicators extension"
+          - group: auto-merge
+            element: bluefin/shell-extensions/blur-my-shell.bst
+            branch: auto/track-blur-my-shell
+            title: "chore(deps): update blur-my-shell extension"
+          - group: auto-merge
+            element: bluefin/shell-extensions/dash-to-dock.bst
+            branch: auto/track-dash-to-dock
+            title: "chore(deps): update dash-to-dock extension"
+          - group: auto-merge
+            element: bluefin/shell-extensions/gsconnect.bst
+            branch: auto/track-gsconnect
+            title: "chore(deps): update gsconnect extension"
+          - group: auto-merge
+            element: bluefin/shell-extensions/search-light.bst
+            branch: auto/track-search-light
+            title: "chore(deps): update search-light extension"
+          - group: auto-merge
+            element: bluefin/shell-extensions/custom-command-menu.bst
+            branch: auto/track-custom-command-menu
+            title: "chore(deps): update custom-command-menu extension"
+          - group: auto-merge
+            element: bluefin/efibootmgr.bst
+            branch: auto/track-efibootmgr
+            title: "chore(deps): update efibootmgr"
+          - group: auto-merge
+            element: bluefin/shell-extensions/caffeine.bst
+            branch: auto/track-caffeine
+            title: "chore(deps): update caffeine extension"
+          # ── manual-merge: core junctions ──
           - group: manual-merge
-            branch: auto/track-core-sources
-            title: "chore(deps): track core and junction sources"
-            elements: >-
-              gnome-build-meta.bst
-              freedesktop-sdk.bst
-              gnomeos-deps/bootc.bst
+            element: gnome-build-meta.bst
+            branch: auto/track-gnome-build-meta
+            title: "chore(deps): update gnome-build-meta junction"
+          - group: manual-merge
+            element: freedesktop-sdk.bst
+            branch: auto/track-freedesktop-sdk
+            title: "chore(deps): update freedesktop-sdk junction"
+          - group: manual-merge
+            element: gnomeos-deps/bootc.bst
+            branch: auto/track-bootc
+            title: "chore(deps): update bootc"
 
     steps:
       - name: Should this group run?
@@ -79,8 +117,7 @@ jobs:
       - name: Track sources with BuildStream
         if: steps.gate.outputs.run == 'true'
         run: |
-          ELEMENTS="${{ matrix.elements }}"
-          just bst --no-interactive source track "$ELEMENTS"
+          just bst --no-interactive source track "${{ matrix.element }}"
 
       - name: Check for changes
         if: steps.gate.outputs.run == 'true'
@@ -88,7 +125,7 @@ jobs:
         run: |
           if git diff --quiet; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "No changes detected"
+            echo "No changes detected for ${{ matrix.element }}"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "Changes detected:"
@@ -101,45 +138,81 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="${{ matrix.branch }}"
-          TITLE="${{ matrix.title }}"
+          BASE_TITLE="${{ matrix.title }}"
+          BST_PATH="elements/${{ matrix.element }}"
+
+          # Extract old and new refs from the diff for version context
+          OLD_REF=$(git diff -- "$BST_PATH" | grep '^-.*ref:' | grep -oP "ref:\s+\K\S+" || true)
+          NEW_REF=$(git diff -- "$BST_PATH" | grep '^+.*ref:' | grep -oP "ref:\s+\K\S+" || true)
+
+          # Strip git-describe suffix (e.g. "v2026.03-17-gabcdef" -> "v2026.03", "4.4.15-3-gabcdef" -> "4.4.15")
+          # Only extract version when ref looks like a tag/describe (contains digits and dots/dashes after an optional "v")
+          # Raw 40-char SHAs are skipped (no version row in the PR body)
+          OLD_VER=$(echo "$OLD_REF" | grep -oP '^v?\d+[\d\.\-]+' | grep '\.' | sed 's/-$//' || true)
+          NEW_VER=$(echo "$NEW_REF" | grep -oP '^v?\d+[\d\.\-]+' | grep '\.' | sed 's/-$//' || true)
+
+          if [ -n "$OLD_VER" ] && [ -n "$NEW_VER" ] && [ "$OLD_VER" != "$NEW_VER" ]; then
+            TITLE="${BASE_TITLE}: ${OLD_VER} -> ${NEW_VER}"
+          else
+            TITLE="$BASE_TITLE"
+          fi
+
+          # Parse upstream GitHub repo from BST source URL (github:ORG/REPO.git)
+          UPSTREAM_SLUG=$(grep -oP 'url:\s+github:\K[^\s.]+(?:\.git)?' "$BST_PATH" | head -1 | sed 's/\.git$//' || true)
+          GITHUB_URL="https://github.com/${UPSTREAM_SLUG}"
+
+          # Extract short SHAs from refs for commit links
+          OLD_SHA=$(echo "$OLD_REF" | grep -oP '(?<=g)[0-9a-f]+$' || echo "$OLD_REF")
+          NEW_SHA=$(echo "$NEW_REF" | grep -oP '(?<=g)[0-9a-f]+$' || echo "$NEW_REF")
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout -B "$BRANCH"
+          git checkout -B "$BRANCH" origin/main
           git add elements/
           git commit -m "$TITLE"
           git push --force-with-lease origin "$BRANCH"
 
-          # Close existing PR for this branch if any
+          # Build Renovate-style PR body
+          {
+            echo "## \`${{ matrix.element }}\` update"
+            echo ""
+            if [ -n "$UPSTREAM_SLUG" ]; then
+              echo "| | |"
+              echo "| --- | --- |"
+              echo "| **Source** | [$UPSTREAM_SLUG]($GITHUB_URL) |"
+              if [ -n "$OLD_VER" ] && [ -n "$NEW_VER" ]; then
+                echo "| **Version** | \`$OLD_VER\` → \`$NEW_VER\` |"
+              fi
+              if [ -n "$OLD_SHA" ] && [ -n "$NEW_SHA" ]; then
+                echo "| **Commits** | [\`${OLD_SHA:0:8}\`]($GITHUB_URL/commit/$OLD_SHA) → [\`${NEW_SHA:0:8}\`]($GITHUB_URL/commit/$NEW_SHA) |"
+                echo "| **Compare** | [$GITHUB_URL/compare/${OLD_SHA:0:8}...${NEW_SHA:0:8}]($GITHUB_URL/compare/${OLD_SHA}...${NEW_SHA}) |"
+              fi
+              echo "| **Releases** | [$GITHUB_URL/releases]($GITHUB_URL/releases) |"
+              echo ""
+            fi
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
+
           EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING_PR" ]; then
-            echo "Closing existing PR #$EXISTING_PR"
-            gh pr close "$EXISTING_PR" --delete-branch=false || true
+            echo "Updating existing PR #$EXISTING_PR"
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body-file /tmp/pr-body.md)
           fi
+          echo "PR: $PR_URL"
 
-          # Create the PR
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "$(cat <<'EOF'
-          ## BuildStream Source Tracking
-
-          Automated update via `bst source track`. Updates element refs to
-          latest commits matching their configured `track:` patterns.
-
-          **Group:** ${{ matrix.group }}
-
-          ---
-          *Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
-          EOF
-          )")
-
-          echo "Created PR: $PR_URL"
-
-          echo "Enabling auto-merge..."
-          gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
+          if [ "${{ matrix.group }}" = "auto-merge" ]; then
+            echo "Enabling auto-merge..."
+            gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
+          fi
 
   track-tarballs:
     runs-on: ubuntu-24.04
@@ -157,138 +230,343 @@ jobs:
       - name: Setup Just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
-      - name: Check for tarball updates
-        id: tarballs
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update brew-tarball
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # ── brew-tarball: ublue-os/packages homebrew releases ──
-          echo "=== Checking brew-tarball ==="
-          BREW_RELEASE=$(gh api repos/ublue-os/packages/releases \
-            --jq '[.[] | select(.tag_name | startswith("homebrew-"))][0].tag_name')
-          echo "Latest brew release: $BREW_RELEASE"
+          LATEST_VERSION=$(gh api repos/ublue-os/brew/releases --jq '.[0].tag_name // empty' 2>/dev/null | sed 's/^v//' || true)
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "No ublue-os/brew releases found yet, skipping."
+            exit 0
+          fi
+          echo "Latest brew version: $LATEST_VERSION"
 
           BST_FILE="elements/bluefin/brew-tarball.bst"
-          CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE" | head -1)
-          echo "Current tag: $CURRENT_TAG"
+          # Collect all unique versions present in the file; both arches should always match
+          VERSIONS=$(grep -oP 'download/\K[^/]+' "$BST_FILE" | sort -u)
+          VERSION_COUNT=$(echo "$VERSIONS" | wc -l)
+          if [ "$VERSION_COUNT" -gt 1 ]; then
+            echo "::warning::brew-tarball has mismatched arch versions: $VERSIONS — updating all"
+          fi
+          CURRENT_VERSION=$(echo "$VERSIONS" | head -1)
+          echo "Current version: $CURRENT_VERSION"
 
-          if [ "$BREW_RELEASE" != "$CURRENT_TAG" ]; then
-            echo "Brew tarball needs update: $CURRENT_TAG -> $BREW_RELEASE"
-            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|g" "$BST_FILE"
-
-            just bst -o arch x86_64 source track bluefin/brew-tarball.bst
-            just bst -o arch aarch64 source track bluefin/brew-tarball.bst
+          if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "brew-tarball is already up to date."
+            exit 0
           fi
 
-          # ── wallpapers: ublue-os/artwork bluefin releases ──
-          echo ""
-          echo "=== Checking wallpapers ==="
+          echo "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
+          sed -i "s|download/${CURRENT_VERSION}/|download/${LATEST_VERSION}/|g" "$BST_FILE"
+          just bst -o arch x86_64 source track bluefin/brew-tarball.bst
+          just bst -o arch aarch64 source track bluefin/brew-tarball.bst
+
+          BRANCH="auto/track-brew-tarball"
+          TITLE="chore(deps): update brew-tarball ${CURRENT_VERSION} -> ${LATEST_VERSION}"
+
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
+
+          {
+            echo "## brew-tarball update: \`${CURRENT_VERSION}\` → \`${LATEST_VERSION}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [ublue-os/brew](https://github.com/ublue-os/brew) |"
+            echo "| **Version** | \`${CURRENT_VERSION}\` → \`${LATEST_VERSION}\` |"
+            echo "| **Releases** | [https://github.com/ublue-os/brew/releases](https://github.com/ublue-os/brew/releases) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
+          fi
+          echo "PR: $PR_URL"
+
+      - name: Update wallpapers
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           WALL_RELEASE=$(gh api repos/ublue-os/artwork/releases \
-            --jq '[.[] | select(.tag_name | startswith("bluefin-"))][0].tag_name')
+            --jq '[.[] | select(.tag_name | startswith("bluefin-"))][0].tag_name // empty')
           echo "Latest wallpaper release: $WALL_RELEASE"
+
+          if [ -z "$WALL_RELEASE" ] || [ "$WALL_RELEASE" = "null" ]; then
+            echo "No bluefin wallpaper releases found, skipping."
+            exit 0
+          fi
 
           BST_FILE="elements/bluefin/wallpapers.bst"
           CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE")
           echo "Current tag: $CURRENT_TAG"
 
-          if [ "$WALL_RELEASE" != "$CURRENT_TAG" ]; then
-            echo "Wallpapers need update: $CURRENT_TAG -> $WALL_RELEASE"
-            NEW_URL="https://github.com/ublue-os/artwork/releases/download/${WALL_RELEASE}/bluefin-wallpapers-gnome.tar.zstd"
-            sed -i "s|download/${CURRENT_TAG}/|download/${WALL_RELEASE}/|" "$BST_FILE"
-
-            just bst -o arch x86_64 source track bluefin/wallpapers.bst
+          if [ "$WALL_RELEASE" = "$CURRENT_TAG" ]; then
+            echo "wallpapers is already up to date."
+            exit 0
           fi
 
-          # ── 1password-cli: 1Password CLI releases ──
-          echo ""
-          echo "=== Checking 1password-cli ==="
-          ONEPASSWORD_PACKAGES=$(curl -fsL "https://downloads.1password.com/linux/debian/amd64/dists/stable/main/binary-amd64/Packages")
+          echo "Updating: $CURRENT_TAG -> $WALL_RELEASE"
+          sed -i "s|download/${CURRENT_TAG}/|download/${WALL_RELEASE}/|" "$BST_FILE"
+          just bst -o arch x86_64 source track bluefin/wallpapers.bst
 
-          CLI_VERSION=$(echo "$ONEPASSWORD_PACKAGES" | grep -A5 "^Package: 1password-cli$" | grep "^Version:" | head -1 | awk '{print $2}' | sed 's/-[0-9]*$//')
-          echo "Latest CLI version: $CLI_VERSION"
+          BRANCH="auto/track-wallpapers"
+          TITLE="chore(deps): update wallpapers ${CURRENT_TAG} -> ${WALL_RELEASE}"
 
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
 
-          CURRENT_CLI_VERSION=$(grep -oP 'v\K[0-9.]+(?=/)' elements/bluefin/1password-cli.bst | head -1)
-          echo "Current CLI version: $CURRENT_CLI_VERSION"
+          {
+            echo "## wallpapers update: \`${CURRENT_TAG}\` → \`${WALL_RELEASE}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [ublue-os/artwork](https://github.com/ublue-os/artwork) |"
+            echo "| **Tag** | \`${CURRENT_TAG}\` → \`${WALL_RELEASE}\` |"
+            echo "| **Releases** | [https://github.com/ublue-os/artwork/releases](https://github.com/ublue-os/artwork/releases) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
 
-          if [ -n "$CLI_VERSION" ] && [ "$CLI_VERSION" != "$CURRENT_CLI_VERSION" ]; then
-            echo "CLI needs update: $CURRENT_CLI_VERSION -> $CLI_VERSION"
-            sed -i "s|v${CURRENT_CLI_VERSION}|v${CLI_VERSION}|g" elements/bluefin/1password-cli.bst
-
-            just bst -o arch x86_64 source track bluefin/1password-cli.bst
-            just bst -o arch aarch64 source track bluefin/1password-cli.bst
-          fi
-
-
-          # ── 1password: 1Password desktop releases ──
-          echo ""
-          echo "=== Checking 1password desktop ==="
-          DESKTOP_VERSION=$(echo "$ONEPASSWORD_PACKAGES" | grep -A10 "^Package: 1password$" | grep "^Version:" | head -1 | awk '{print $2}')
-          echo "Latest desktop version: $DESKTOP_VERSION"
-
-          CURRENT_DESKTOP_VERSION=$(grep -oP '1password-\K[0-9.]+(?=\.x64)' elements/bluefin/1password.bst | head -1)
-          echo "Current desktop version: $CURRENT_DESKTOP_VERSION"
-
-          if [ -n "$DESKTOP_VERSION" ] && [ "$DESKTOP_VERSION" != "$CURRENT_DESKTOP_VERSION" ]; then
-            echo "Desktop needs update: $CURRENT_DESKTOP_VERSION -> $DESKTOP_VERSION"
-            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.x64|1password-${DESKTOP_VERSION}.x64|g" elements/bluefin/1password.bst
-            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.arm64|1password-${DESKTOP_VERSION}.arm64|g" elements/bluefin/1password.bst
-
-            just bst -o arch x86_64 source track bluefin/1password.bst
-            just bst -o arch aarch64 source track bluefin/1password.bst
-          fi
-
-          if git diff --quiet; then
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "No changes detected"
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
           else
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            echo "Changes detected:"
-            git diff --stat
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
           fi
+          echo "PR: $PR_URL"
 
-      - name: Create tarball update PR
-        if: steps.tarballs.outputs.has_changes == 'true'
+      - name: Update fzf
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="auto/track-tarball-sources"
-          TITLE="chore(deps): update tarball sources"
+          LATEST_VERSION=$(gh api repos/junegunn/fzf/releases/latest --jq '.tag_name' | sed 's/^v//')
+          echo "Latest fzf version: $LATEST_VERSION"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BST_FILE="elements/bluefin/fzf.bst"
+          CURRENT_VERSION=$(grep -oP 'download/v\K[0-9.]+' "$BST_FILE" | head -1)
+          echo "Current version: $CURRENT_VERSION"
 
-          git checkout -B "$BRANCH"
-          git add elements/
-          git commit -m "$TITLE"
-          git push --force-with-lease origin "$BRANCH"
-
-          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number \
-            --jq '.[0].number' 2>/dev/null || true)
-          if [ -n "$EXISTING_PR" ]; then
-            gh pr close "$EXISTING_PR" --delete-branch=false || true
+          if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "fzf is already up to date."
+            exit 0
           fi
 
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "$(cat <<'EOF'
-          ## Tarball Source Updates
+          echo "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
+          sed -i "s|v${CURRENT_VERSION}/fzf-${CURRENT_VERSION}|v${LATEST_VERSION}/fzf-${LATEST_VERSION}|g" "$BST_FILE"
+          just bst -o arch x86_64 source track bluefin/fzf.bst
+          just bst -o arch aarch64 source track bluefin/fzf.bst
 
-          Automated check for new releases of tarball-sourced dependencies.
+          BRANCH="auto/track-fzf"
+          TITLE="chore(deps): update fzf v${CURRENT_VERSION} -> v${LATEST_VERSION}"
 
-          ### Checked sources
-          - `elements/bluefin/brew-tarball/brew-tarball-{x86_64,aarch64}.bst` -- ublue-os/packages
-          - `elements/bluefin/wallpapers.bst` -- ublue-os/artwork
-          - `elements/bluefin/1password-cli/1password-cli-{x86_64,aarch64}.bst` -- 1Password CLI
-          - `elements/bluefin/1password/1password-{x86_64,aarch64}.bst` -- 1Password desktop
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
 
-          ---
-          *Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
-          EOF
-          )")
+          {
+            echo "## fzf update: \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [junegunn/fzf](https://github.com/junegunn/fzf) |"
+            echo "| **Version** | \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\` |"
+            echo "| **Changelog** | [https://github.com/junegunn/fzf/releases/tag/v${LATEST_VERSION}](https://github.com/junegunn/fzf/releases/tag/v${LATEST_VERSION}) |"
+            echo "| **Compare** | [v${CURRENT_VERSION}...v${LATEST_VERSION}](https://github.com/junegunn/fzf/compare/v${CURRENT_VERSION}...v${LATEST_VERSION}) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
 
-          echo "Created PR: $PR_URL"
-          echo "Enabling auto-merge..."
-          gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
+          fi
+          echo "PR: $PR_URL"
+
+      - name: Update glow
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_VERSION=$(gh api repos/charmbracelet/glow/releases/latest --jq '.tag_name' | sed 's/^v//')
+          echo "Latest glow version: $LATEST_VERSION"
+
+          BST_FILE="elements/bluefin/glow.bst"
+          CURRENT_VERSION=$(grep -oP 'download/v\K[0-9.]+' "$BST_FILE" | head -1)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "glow is already up to date."
+            exit 0
+          fi
+
+          echo "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
+          sed -i "s|v${CURRENT_VERSION}/glow_${CURRENT_VERSION}|v${LATEST_VERSION}/glow_${LATEST_VERSION}|g" "$BST_FILE"
+          just bst -o arch x86_64 source track bluefin/glow.bst
+          just bst -o arch aarch64 source track bluefin/glow.bst
+
+          BRANCH="auto/track-glow"
+          TITLE="chore(deps): update glow v${CURRENT_VERSION} -> v${LATEST_VERSION}"
+
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
+
+          {
+            echo "## glow update: \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [charmbracelet/glow](https://github.com/charmbracelet/glow) |"
+            echo "| **Version** | \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\` |"
+            echo "| **Changelog** | [https://github.com/charmbracelet/glow/releases/tag/v${LATEST_VERSION}](https://github.com/charmbracelet/glow/releases/tag/v${LATEST_VERSION}) |"
+            echo "| **Compare** | [v${CURRENT_VERSION}...v${LATEST_VERSION}](https://github.com/charmbracelet/glow/compare/v${CURRENT_VERSION}...v${LATEST_VERSION}) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
+          fi
+          echo "PR: $PR_URL"
+
+      - name: Update gum
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_VERSION=$(gh api repos/charmbracelet/gum/releases/latest --jq '.tag_name' | sed 's/^v//')
+          echo "Latest gum version: $LATEST_VERSION"
+
+          BST_FILE="elements/bluefin/gum.bst"
+          CURRENT_VERSION=$(grep -oP 'download/v\K[0-9.]+' "$BST_FILE" | head -1)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "gum is already up to date."
+            exit 0
+          fi
+
+          echo "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
+          sed -i "s|v${CURRENT_VERSION}/gum_${CURRENT_VERSION}|v${LATEST_VERSION}/gum_${LATEST_VERSION}|g" "$BST_FILE"
+          just bst -o arch x86_64 source track bluefin/gum.bst
+          just bst -o arch aarch64 source track bluefin/gum.bst
+
+          BRANCH="auto/track-gum"
+          TITLE="chore(deps): update gum v${CURRENT_VERSION} -> v${LATEST_VERSION}"
+
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
+
+          {
+            echo "## gum update: \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [charmbracelet/gum](https://github.com/charmbracelet/gum) |"
+            echo "| **Version** | \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\` |"
+            echo "| **Changelog** | [https://github.com/charmbracelet/gum/releases/tag/v${LATEST_VERSION}](https://github.com/charmbracelet/gum/releases/tag/v${LATEST_VERSION}) |"
+            echo "| **Compare** | [v${CURRENT_VERSION}...v${LATEST_VERSION}](https://github.com/charmbracelet/gum/compare/v${CURRENT_VERSION}...v${LATEST_VERSION}) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
+          fi
+          echo "PR: $PR_URL"
+
+      - name: Update gtk4-layer-shell
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_VERSION=$(gh api repos/wmww/gtk4-layer-shell/releases/latest --jq '.tag_name' | sed 's/^v//')
+          echo "Latest gtk4-layer-shell version: $LATEST_VERSION"
+
+          BST_FILE="elements/bluefin/gtk4-layer-shell.bst"
+          CURRENT_VERSION=$(grep -oP 'tags/v\K[0-9]+\.[0-9]+\.[0-9]+' "$BST_FILE" | head -1)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "gtk4-layer-shell is already up to date."
+            exit 0
+          fi
+
+          echo "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
+          sed -i "s|tags/v${CURRENT_VERSION}|tags/v${LATEST_VERSION}|g" "$BST_FILE"
+          just bst source track bluefin/gtk4-layer-shell.bst
+
+          BRANCH="auto/track-gtk4-layer-shell"
+          TITLE="chore(deps): update gtk4-layer-shell v${CURRENT_VERSION} -> v${LATEST_VERSION}"
+
+          git checkout -B "$BRANCH" origin/main
+          git add "$BST_FILE"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          git checkout -f main
+
+          {
+            echo "## gtk4-layer-shell update: \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\`"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| **Source** | [wmww/gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell) |"
+            echo "| **Version** | \`v${CURRENT_VERSION}\` → \`v${LATEST_VERSION}\` |"
+            echo "| **Changelog** | [https://github.com/wmww/gtk4-layer-shell/releases/tag/v${LATEST_VERSION}](https://github.com/wmww/gtk4-layer-shell/releases/tag/v${LATEST_VERSION}) |"
+            echo "| **Compare** | [v${CURRENT_VERSION}...v${LATEST_VERSION}](https://github.com/wmww/gtk4-layer-shell/compare/v${CURRENT_VERSION}...v${LATEST_VERSION}) |"
+            echo ""
+            echo "---"
+            echo "*Generated by [Track BuildStream Sources](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          } > /tmp/pr-body.md
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file /tmp/pr-body.md
+            PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url')
+          else
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md)
+          fi
+          echo "PR: $PR_URL"
