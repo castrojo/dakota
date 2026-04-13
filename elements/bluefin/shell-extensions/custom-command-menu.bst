@@ -26,5 +26,9 @@ config:
       glib-compile-schemas --strict schemas/
       install -d "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}"
       cp -R ./* "%{install-root}/usr/share/gnome-shell/extensions/${_uuid}/"
+
+      # Install schema to system dir so gschema overrides (e.g. menuicon-setting) apply
+      install -Dm644 schemas/org.gnome.shell.extensions.custom-command-list.gschema.xml \
+        "%{install-root}/usr/share/glib-2.0/schemas/org.gnome.shell.extensions.custom-command-list.gschema.xml"
     - |
       %{install-extra}
