@@ -42,7 +42,7 @@ jobs:
               bluefin/shell-extensions/dash-to-dock.bst
               bluefin/shell-extensions/gsconnect.bst
               bluefin/shell-extensions/search-light.bst
-              bluefin/shell-extensions/logomenu.bst
+              bluefin/shell-extensions/custom-command-menu.bst
           - group: manual-merge
             branch: auto/track-core-sources
             title: "chore(deps): track core and junction sources"
