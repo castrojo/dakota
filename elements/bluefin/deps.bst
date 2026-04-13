@@ -9,6 +9,7 @@ depends:
   - bluefin/brew-tarball.bst
 
   - bluefin/tailscale.bst
+  - bluefin/uupd.bst
 
 
   - bluefin/ghostty.bst
