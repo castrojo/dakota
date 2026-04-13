@@ -3,7 +3,7 @@ kind: manual
 sources:
   - kind: git_repo
     url: github:StorageB/custom-command-menu.git
-    track: v*
+    track: main
     ref: f7d4eb671aece43c9ee8b52bf8d740f948202bf4
 
 build-depends:
