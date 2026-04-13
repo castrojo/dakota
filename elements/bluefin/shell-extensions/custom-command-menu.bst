@@ -2,9 +2,9 @@ kind: manual
 
 sources:
   - kind: git_repo
-    url: github:ublue-os/Logomenu.git
-    track: main
-    ref: ab8b37e524d6795f4eb7170cc62b7f90de7f5729
+    url: github:StorageB/custom-command-menu.git
+    track: v*
+    ref: v12-0-g8749b1247e681e86e07a3c7e7db5bdcead139639
 
 build-depends:
   - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
