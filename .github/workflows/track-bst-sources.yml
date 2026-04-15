@@ -49,6 +49,7 @@ jobs:
             elements: >-
               gnome-build-meta.bst
               freedesktop-sdk.bst
+              gnomeos-deps/bootc.bst
 
     steps:
       - name: Should this group run?
