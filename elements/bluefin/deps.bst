@@ -43,6 +43,6 @@ depends:
   - gnome-build-meta.bst:gnomeos-deps/bpftop.bst
   - gnome-build-meta.bst:core/sysprof-app.bst
 
-  - gnome-build-meta.bst:gnomeos-deps/distrobox.bst
+  - bluefin/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
