@@ -1,9 +1,11 @@
 name: Build Bluefin dakota
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: ["**/*.md"]
+  schedule:
+    # 13:00 UTC daily — gnome-build-meta nightly starts ~02:00 UTC and typically
+    # finishes by ~08:00 UTC (worst-case ~11:30). The 2-hour buffer here handles
+    # normal build-time fluctuations so dakota always picks up the freshest artifacts.
+    - cron: '0 13 * * *'
   pull_request:
     branches: [main]
   merge_group:
@@ -222,13 +224,19 @@ jobs:
           if-no-files-found: ignore
 
       - name: Login to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
 
       - name: Tag image for GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
         run: |
           sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
@@ -236,7 +244,10 @@ jobs:
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
       - name: Push to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
         run: |
           for tag in latest "${{ github.sha }}"; do
             for i in 1 2 3; do
