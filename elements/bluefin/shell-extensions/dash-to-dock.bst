@@ -4,7 +4,7 @@ sources:
 - kind: git_repo
   url: github:micheleg/dash-to-dock.git
   track: extensions.gnome.org-v*
-  ref: extensions.gnome.org-v104-0-g69c6ee5c7669b0a3b0077467cdbbcf3b39ddc44a
+  ref: extensions.gnome.org-v105-0-gb1478f10a3fca9eaa5dc9d2f9907c20427e269f6
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
