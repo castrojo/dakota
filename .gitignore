@@ -19,3 +19,8 @@
 
 # Git worktrees
 .worktrees/
+files/filemap.json
+files/fakecap-manifest.tsv
+files/xattr-db/
+files/fakecap/fakecap-restore
+files/fakecap/fakecap.so

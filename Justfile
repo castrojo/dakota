@@ -458,6 +458,10 @@ show-me-the-future:
 
 # ── Chunkah ──────────────────────────────────────────────────────────
 # Use the pre-built chunkah image from quay.io
+# TODO: once coreos/chunkah#113 lands (libc fallback for xattr reads),
+# the overlay + xattr-apply step can be removed. chunkah can then be run
+# with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
+# See also: projectbluefin/dakota#231.
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -469,25 +473,58 @@ chunkify image_ref:
     fi
 
     echo "==> Chunkifying {{image_ref}}..."
-    
+
     # Get config from existing image
     CONFIG=$($SUDO_CMD podman inspect "{{image_ref}}")
-    
-    # Run chunkah (default 64 layers) and pipe to podman load
-    # Uses --mount=type=image to expose the source image content to chunkah
-    # Note: We need --privileged for some podman-in-podman/mount scenarios or just standard access
+
+    # Compile fakecap-restore from source if not already built.
+    FAKECAP_RESTORE="{{justfile_directory()}}/files/fakecap/fakecap-restore"
+    if [ ! -x "$FAKECAP_RESTORE" ]; then
+        echo "==> Compiling fakecap-restore..."
+        gcc -O2 -o "$FAKECAP_RESTORE" "{{justfile_directory()}}/files/fakecap/fakecap-restore.c"
+    fi
+
+    echo "==> Generating component filemap..."
+    python3 scripts/gen-filemap.py
+
+    # Mount the image as a writable overlay so we can physically set
+    # user.component xattrs.  chunkah uses rustix raw syscalls for xattr
+    # reads (bypassing libc/LD_PRELOAD), so real xattrs must be present.
+    # See coreos/chunkah#113.
+    LOWER=$($SUDO_CMD podman image mount "{{image_ref}}")
+
+    cleanup() {
+        $SUDO_CMD umount "$MERGED" 2>/dev/null || true
+        $SUDO_CMD rm -rf "$UPPER" "$WORK" "$MERGED"
+        $SUDO_CMD podman image umount "{{image_ref}}" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+
+    UPPER=$(mktemp -d); WORK=$(mktemp -d); MERGED=$(mktemp -d)
+    $SUDO_CMD chmod 755 "$UPPER" "$WORK" "$MERGED"
+    $SUDO_CMD mount -t overlay overlay \
+        -o "lowerdir=${LOWER},upperdir=${UPPER},workdir=${WORK}" \
+        "$MERGED"
+
+    echo "==> Applying user.component xattrs via fakecap-restore..."
+    $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
+
+    # Run chunkah against the overlay (bind-mounted read-only).
+    # --max-layers 128 gives finer-grained content-based splitting;
+    # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
-        --mount=type=image,src="{{image_ref}}",dest=/chunkah \
+        -v "${MERGED}:/chunkah:ro" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/jlebon/chunkah:latest build | $SUDO_CMD podman load)
-    
+        quay.io/coreos/chunkah:latest build --max-layers 128 \
+        | $SUDO_CMD podman load)
+
     echo "$LOADED"
-    
+
     # Parse the loaded image reference
     NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
               echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
-    
+
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"

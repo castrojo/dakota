@@ -1,6 +1,6 @@
-From ca1a7ee5469ca8deeea250406d347b376e64ff1a Mon Sep 17 00:00:00 2001
-From: Valentin David <me@valentindavid.com>
-Date: Sun, 16 Nov 2025 10:24:28 +0100
+From 49c54b16af8e5faf274fe018f737699a1d1a478b Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Fri, 10 Apr 2026 23:17:46 -0400
 Subject: [PATCH] Automatically generate keys
 
 ---
@@ -31,7 +31,7 @@ Subject: [PATCH] Automatically generate keys
  create mode 100644 source-plugins/generated.py
 
 diff --git a/.gitlab-ci/scripts/global-before-script.sh b/.gitlab-ci/scripts/global-before-script.sh
-index 8aee56ea95..b3c37ab28b 100644
+index 8aee56e..b3c37ab 100644
 --- a/.gitlab-ci/scripts/global-before-script.sh
 +++ b/.gitlab-ci/scripts/global-before-script.sh
 @@ -14,10 +14,10 @@ mkdir -p logs
@@ -55,7 +55,7 @@ index 8aee56ea95..b3c37ab28b 100644
 +export BST="${BST} -o key_mode ${KEY_MODE}"
 +export BST_NO_PUSH="${BST_NO_PUSH} -o key_mode ${KEY_MODE}"
 diff --git a/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh b/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
-index a7496db29e..78f026dab1 100755
+index a7496db..78f026d 100755
 --- a/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
 +++ b/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
 @@ -24,6 +24,7 @@ if [ -n "${target_dir}" ] && [ -n "${IMAGE_VERSION}" ]; then
@@ -67,7 +67,7 @@ index a7496db29e..78f026dab1 100755
          --output "update-images/SHA256SUMS.gpg" \
          --detach-sig "update-images/SHA256SUMS"
 diff --git a/elements/gnomeos-deps/efitools.bst b/elements/gnomeos-deps/efitools.bst
-index 9aba05690a..10bf4d6548 100644
+index e4e6585..36df95e 100644
 --- a/elements/gnomeos-deps/efitools.bst
 +++ b/elements/gnomeos-deps/efitools.bst
 @@ -9,29 +9,29 @@ sources:
@@ -123,7 +123,7 @@ index 9aba05690a..10bf4d6548 100644
  - kind: git_repo
    url: github:microsoft/secureboot_objects.git
 diff --git a/elements/gnomeos-deps/shim.bst b/elements/gnomeos-deps/shim.bst
-index 487eb1b705..61a044dbaa 100644
+index 487eb1b..61a044d 100644
 --- a/elements/gnomeos-deps/shim.bst
 +++ b/elements/gnomeos-deps/shim.bst
 @@ -14,8 +14,8 @@ sources:
@@ -138,7 +138,7 @@ index 487eb1b705..61a044dbaa 100644
  
  build-depends:
 diff --git a/elements/gnomeos/debug/layer.bst b/elements/gnomeos/debug/layer.bst
-index c5d33564e3..b542ebaa46 100644
+index c5d3356..b542eba 100644
 --- a/elements/gnomeos/debug/layer.bst
 +++ b/elements/gnomeos/debug/layer.bst
 @@ -10,10 +10,10 @@ build-depends:
@@ -157,7 +157,7 @@ index c5d33564e3..b542ebaa46 100644
  variables:
    repart-seed: 0dc2e590-c162-4ed3-992f-75ddb3fdbb65
 diff --git a/elements/gnomeos/devel/layer.bst b/elements/gnomeos/devel/layer.bst
-index ca487f70e4..9576c82f38 100644
+index ca487f7..9576c82 100644
 --- a/elements/gnomeos/devel/layer.bst
 +++ b/elements/gnomeos/devel/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -176,7 +176,7 @@ index ca487f70e4..9576c82f38 100644
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
 diff --git a/elements/gnomeos/fwupd-efi-signed.bst b/elements/gnomeos/fwupd-efi-signed.bst
-index e1c852e065..4d99bf99b1 100644
+index e1c852e..4d99bf9 100644
 --- a/elements/gnomeos/fwupd-efi-signed.bst
 +++ b/elements/gnomeos/fwupd-efi-signed.bst
 @@ -25,7 +25,7 @@ config:
@@ -192,7 +192,7 @@ index e1c852e065..4d99bf99b1 100644
 +- kind: generated
 +  path: VENDOR.crt
 diff --git a/elements/gnomeos/import-deployment-pub-key.bst b/elements/gnomeos/import-deployment-pub-key.bst
-index 9139516589..81b661aed7 100644
+index 9139516..81b661a 100644
 --- a/elements/gnomeos/import-deployment-pub-key.bst
 +++ b/elements/gnomeos/import-deployment-pub-key.bst
 @@ -1,8 +1,8 @@
@@ -207,7 +207,7 @@ index 9139516589..81b661aed7 100644
  runtime-depends:
  - freedesktop-sdk.bst:components/systemd.bst
 diff --git a/elements/gnomeos/initramfs/signed-modules.bst b/elements/gnomeos/initramfs/signed-modules.bst
-index ebdfa7cb1a..a6cfc6bc64 100644
+index ebdfa7c..a6cfc6b 100644
 --- a/elements/gnomeos/initramfs/signed-modules.bst
 +++ b/elements/gnomeos/initramfs/signed-modules.bst
 @@ -30,7 +30,7 @@ variables:
@@ -223,7 +223,7 @@ index ebdfa7cb1a..a6cfc6bc64 100644
 +- kind: generated
 +  path: modules/linux-module-cert.crt
 diff --git a/elements/gnomeos/initramfs/signed-nvidia-modules.bst b/elements/gnomeos/initramfs/signed-nvidia-modules.bst
-index 50370193df..b6ace990ee 100644
+index 5037019..b6ace99 100644
 --- a/elements/gnomeos/initramfs/signed-nvidia-modules.bst
 +++ b/elements/gnomeos/initramfs/signed-nvidia-modules.bst
 @@ -33,7 +33,7 @@ config:
@@ -239,7 +239,7 @@ index 50370193df..b6ace990ee 100644
 +- kind: generated
 +  path: modules/linux-module-cert.crt
 diff --git a/elements/gnomeos/linux-module-cert.bst b/elements/gnomeos/linux-module-cert.bst
-index d740dfeb8b..1dc663e152 100644
+index d740dfe..1dc663e 100644
 --- a/elements/gnomeos/linux-module-cert.bst
 +++ b/elements/gnomeos/linux-module-cert.bst
 @@ -4,5 +4,5 @@ config:
@@ -251,7 +251,7 @@ index d740dfeb8b..1dc663e152 100644
 +- kind: generated
 +  path: modules
 diff --git a/elements/gnomeos/nvidia-modules/layer.bst b/elements/gnomeos/nvidia-modules/layer.bst
-index c460e95dc1..b57145fbb6 100644
+index c460e95..b57145f 100644
 --- a/elements/gnomeos/nvidia-modules/layer.bst
 +++ b/elements/gnomeos/nvidia-modules/layer.bst
 @@ -10,10 +10,10 @@ build-depends:
@@ -270,7 +270,7 @@ index c460e95dc1..b57145fbb6 100644
  variables:
    repart-seed: a19b0f25-42ac-4c92-8921-d8d4079ec140
 diff --git a/elements/gnomeos/nvidia-runtime/layer.bst b/elements/gnomeos/nvidia-runtime/layer.bst
-index b1d630d6d0..93406141b1 100644
+index b1d630d..9340614 100644
 --- a/elements/gnomeos/nvidia-runtime/layer.bst
 +++ b/elements/gnomeos/nvidia-runtime/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -289,7 +289,7 @@ index b1d630d6d0..93406141b1 100644
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
 diff --git a/elements/gnomeos/public-keys.bst b/elements/gnomeos/public-keys.bst
-index 73c4a03886..de4751af1f 100644
+index 73c4a03..de4751a 100644
 --- a/elements/gnomeos/public-keys.bst
 +++ b/elements/gnomeos/public-keys.bst
 @@ -1,10 +1,10 @@
@@ -308,7 +308,7 @@ index 73c4a03886..de4751af1f 100644
  build-depends:
  - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 diff --git a/elements/gnomeos/replace-signed-systemd-boot.bst b/elements/gnomeos/replace-signed-systemd-boot.bst
-index 0ef2f7b2cf..ac061b46b8 100644
+index 0ef2f7b..ac061b4 100644
 --- a/elements/gnomeos/replace-signed-systemd-boot.bst
 +++ b/elements/gnomeos/replace-signed-systemd-boot.bst
 @@ -29,7 +29,7 @@ public:
@@ -324,7 +324,7 @@ index 0ef2f7b2cf..ac061b46b8 100644
 +- kind: generated
 +  path: VENDOR.crt
 diff --git a/elements/gnomeos/signed-boot-common.bst b/elements/gnomeos/signed-boot-common.bst
-index a30e75a374..40eee8493c 100644
+index a30e75a..40eee84 100644
 --- a/elements/gnomeos/signed-boot-common.bst
 +++ b/elements/gnomeos/signed-boot-common.bst
 @@ -46,7 +46,7 @@ config:
@@ -340,7 +340,7 @@ index a30e75a374..40eee8493c 100644
 +- kind: generated
 +  path: DB.crt
 diff --git a/elements/gnomeos/signed-boot.bst b/elements/gnomeos/signed-boot.bst
-index 1b92008746..30a715d8d8 100644
+index 1b92008..30a715d 100644
 --- a/elements/gnomeos/signed-boot.bst
 +++ b/elements/gnomeos/signed-boot.bst
 @@ -120,15 +120,15 @@ config:
@@ -372,7 +372,7 @@ index 1b92008746..30a715d8d8 100644
 +- kind: generated
 +  path: fstab-tpm2-pcr-private.pem
 diff --git a/elements/gnomeos/snapd/layer.bst b/elements/gnomeos/snapd/layer.bst
-index b8f84071c6..8cbf91d161 100644
+index b8f8407..8cbf91d 100644
 --- a/elements/gnomeos/snapd/layer.bst
 +++ b/elements/gnomeos/snapd/layer.bst
 @@ -15,10 +15,10 @@ build-depends:
@@ -391,12 +391,12 @@ index b8f84071c6..8cbf91d161 100644
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
 diff --git a/project.conf b/project.conf
-index adac2a1ef5..f6c36ca278 100644
+index a9540f4..ae94672 100644
 --- a/project.conf
 +++ b/project.conf
 @@ -65,6 +65,17 @@ options:
-       - nightly
-       - stable
+     - nightly
+     - stable
  
 +  key_mode:
 +    type: enum
@@ -446,7 +446,7 @@ index adac2a1ef5..f6c36ca278 100644
 +  - generated
 diff --git a/source-plugins/generated.py b/source-plugins/generated.py
 new file mode 100644
-index 0000000000..cd3d4dcb63
+index 0000000..cd3d4dc
 --- /dev/null
 +++ b/source-plugins/generated.py
 @@ -0,0 +1,102 @@
@@ -553,7 +553,7 @@ index 0000000000..cd3d4dcb63
 +def setup():
 +    return GeneratedSource
 diff --git a/utils/enable-local-repo.sh b/utils/enable-local-repo.sh
-index a40c1c1645..48514416f2 100755
+index a40c1c1..4851441 100755
 --- a/utils/enable-local-repo.sh
 +++ b/utils/enable-local-repo.sh
 @@ -106,6 +106,8 @@ clean() {
@@ -566,7 +566,7 @@ index a40c1c1645..48514416f2 100755
      clean
  else
 diff --git a/utils/run-secure-vm.sh b/utils/run-secure-vm.sh
-index ff146dfaa3..90f910048b 100755
+index ff146df..90f9100 100755
 --- a/utils/run-secure-vm.sh
 +++ b/utils/run-secure-vm.sh
 @@ -272,7 +272,6 @@ if [ "${rebuild_iso+set}" = set ] || (! [ -f "${STATE_DIR}/disk.iso" ] && [ "${l
@@ -586,7 +586,7 @@ index ff146dfaa3..90f910048b 100755
  f~ /etc/systemd/import-pubring.pgp 0644 root root - $(base64 -w0 files/boot-keys/import-pubring.pgp)
  EOF
 diff --git a/utils/run-sysupdate-repo.sh b/utils/run-sysupdate-repo.sh
-index 95f4415e42..1bb1bebf0f 100755
+index 95f4415..1bb1beb 100755
 --- a/utils/run-sysupdate-repo.sh
 +++ b/utils/run-sysupdate-repo.sh
 @@ -113,6 +113,7 @@ fi
@@ -598,5 +598,5 @@ index 95f4415e42..1bb1bebf0f 100755
  
  if [ "${next_version+set}" = set ]; then
 -- 
-GitLab
+2.52.0
 
