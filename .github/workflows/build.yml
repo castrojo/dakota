@@ -218,7 +218,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: buildstream-logs
+          name: buildstream-logs-x86_64
           path: logs/
           retention-days: 7
           if-no-files-found: ignore
@@ -256,3 +256,226 @@ jobs:
               sleep 5
             done
           done
+
+  # ── aarch64 native build ──────────────────────────────────────────────────
+  # Mirrors the x86_64 build job. ARM failures do not fail the workflow or
+  # block x86_64 publication — this is an experimental parallel build.
+  build-aarch64:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Mount BTRFS for podman storage
+        id: container-storage
+        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
+        continue-on-error: true
+        with:
+          target-dir: /var/lib/containers
+          mount-opts: compress-force=zstd:2
+          loopback-free: '1'
+
+      - name: Remove unwanted software
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # v10
+
+      - name: Setup Just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
+      - name: Capture build timestamp
+        id: timestamp
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Generate BuildStream CI config
+        env:
+          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
+          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+        run: |
+          mkdir -p logs
+
+          echo "$CASD_CLIENT_CERT" > client.crt
+          echo "$CASD_CLIENT_KEY" > client.key
+          cat > buildstream-ci.conf <<'BSTCONF'
+          scheduler:
+            on-error: continue
+            fetchers: 32
+            builders: 4
+            network-retries: 3
+
+          logging:
+            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
+            error-lines: 80
+
+          cachedir: /root/.cache/buildstream
+          logdir: /src/logs
+
+          build:
+            retry-failed: True
+
+          BSTCONF
+
+          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
+          artifacts:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          source-caches:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: true
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          cache:
+            storage-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+          BSTCONFPUSH
+          fi
+
+          echo "=== BuildStream CI config ==="
+          cat buildstream-ci.conf
+
+      - name: Build OCI image with BuildStream (aarch64)
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64
+        run: |
+          just bst build oci/bluefin.bst
+        timeout-minutes: 300
+
+      - name: Export OCI image from BuildStream
+        id: export
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64
+          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
+          OCI_IMAGE_REVISION: ${{ github.sha }}
+          OCI_IMAGE_VERSION: aarch64
+        run: |
+          just export
+          echo "image_ref=${{ env.IMAGE_NAME }}:aarch64" >> "$GITHUB_OUTPUT"
+
+      - name: Verify image loaded
+        run: sudo podman images
+
+      - name: Validate with bootc container lint
+        run: |
+           just lint
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: buildstream-logs-aarch64
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Login to GHCR
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
+
+      - name: Tag image for GHCR
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
+        run: |
+          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64"
+          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64-${{ github.sha }}"
+
+      - name: Push to GHCR
+        if: >-
+          github.event_name == 'merge_group' ||
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
+        run: |
+          for tag in aarch64 "aarch64-${{ github.sha }}"; do
+            for i in 1 2 3; do
+              sudo podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
+              echo "Push attempt $i failed for tag ${tag}, retrying..."
+              sleep 5
+            done
+          done
+
+  # ── Multi-arch manifest ───────────────────────────────────────────────────
+  # Combines :latest (x86_64) and :aarch64 into a single multi-arch manifest.
+  # Only runs when both build jobs succeed and this is a publish event.
+  # ARM failures skip this job without affecting x86_64 publication.
+  create-manifest:
+    runs-on: ubuntu-24.04
+    needs: [build, build-aarch64]
+    if: >-
+      (github.event_name == 'merge_group' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch') &&
+      needs.build-aarch64.result == 'success'
+    permissions:
+      packages: write
+    steps:
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
+
+      - name: Create and push multi-arch manifest
+        run: |
+          sudo podman manifest create "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64"
+          sudo podman manifest push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
