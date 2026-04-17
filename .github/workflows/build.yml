@@ -263,6 +263,8 @@ jobs:
   build-aarch64:
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
+    outputs:
+      pushed: ${{ steps.push-aarch64.outputs.pushed }}
     permissions:
       contents: read
       packages: write
@@ -423,6 +425,7 @@ jobs:
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64-${{ github.sha }}"
 
       - name: Push to GHCR
+        id: push-aarch64
         if: >-
           github.event_name == 'merge_group' ||
           github.event_name == 'schedule' ||
@@ -435,10 +438,13 @@ jobs:
               sleep 5
             done
           done
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
   # ── Multi-arch manifest ───────────────────────────────────────────────────
   # Combines :latest (x86_64) and :aarch64 into a single multi-arch manifest.
-  # Only runs when both build jobs succeed and this is a publish event.
+  # Only runs when :aarch64 was actually pushed this run (not just when the
+  # job completed — continue-on-error makes needs.result == 'success' even on
+  # failure, so we gate on the step output instead).
   # ARM failures skip this job without affecting x86_64 publication.
   create-manifest:
     runs-on: ubuntu-24.04
@@ -447,7 +453,7 @@ jobs:
       (github.event_name == 'merge_group' ||
        github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch') &&
-      needs.build-aarch64.result == 'success'
+      needs.build-aarch64.outputs.pushed == 'true'
     permissions:
       packages: write
     steps:
