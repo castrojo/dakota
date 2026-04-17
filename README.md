@@ -18,7 +18,23 @@
 
 ## ISO Download
 
-[dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso)
+[dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso) · [Checksum](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM)
+
+### ISO Archive
+
+Some ISOs are duds, so here's an archive:
+
+<!-- iso-table-start -->
+| Date | ISO | Checksum |
+|------|-----|----------|
+| 2026-04-16 | [dakota-live-20260416-a7cd634.iso](https://projectbluefin.dev/dakota-live-20260416-a7cd634.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260416-a7cd634.iso-CHECKSUM) |
+| 2026-04-16 | [dakota-live-20260416-fa525c1.iso](https://projectbluefin.dev/dakota-live-20260416-fa525c1.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260416-fa525c1.iso-CHECKSUM) |
+| 2026-04-15 | [dakota-live-20260415-fa525c1.iso](https://projectbluefin.dev/dakota-live-20260415-fa525c1.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260415-fa525c1.iso-CHECKSUM) |
+| 2026-04-15 | [dakota-live-20260415-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260415-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260415-c28ffaf.iso-CHECKSUM) |
+| 2026-04-14 | [dakota-live-20260414-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260414-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260414-c28ffaf.iso-CHECKSUM) |
+| 2026-04-13 | [dakota-live-20260413-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260413-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260413-c28ffaf.iso-CHECKSUM) |
+| 2026-04-13 | [dakota-live-20260413-9b9756e.iso](https://projectbluefin.dev/dakota-live-20260413-9b9756e.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260413-9b9756e.iso-CHECKSUM) |
+<!-- iso-table-end -->
 
 ## Goals
 
