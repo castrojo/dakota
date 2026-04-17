@@ -109,7 +109,7 @@ export:
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
     # Step: Chunkify (reorganize layers)
-    just chunkify "{{image_name}}:{{image_tag}}"
+    # just chunkify "{{image_name}}:{{image_tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -478,15 +478,8 @@ chunkify image_ref:
         gcc -O2 -o "$FAKECAP_RESTORE" "{{justfile_directory()}}/files/fakecap/fakecap-restore.c"
     fi
 
-    # files/filemap.json and files/fakecap-manifest.tsv are pre-committed so CI can
-    # use them without a local BST artifact cache. To regenerate after BST element
-    # changes, delete both files and re-run: python3 scripts/gen-filemap.py
-    if [ ! -s "files/filemap.json" ] || [ ! -s "files/fakecap-manifest.tsv" ]; then
-        echo "==> Generating component filemap..."
-        python3 scripts/gen-filemap.py
-    else
-        echo "==> Using pre-committed component filemap."
-    fi
+    echo "==> Generating component filemap..."
+    python3 scripts/gen-filemap.py
 
     # Mount the image as a writable overlay so we can physically set
     # user.component xattrs.  chunkah uses rustix raw syscalls for xattr
@@ -511,13 +504,13 @@ chunkify image_ref:
     $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
 
     # Run chunkah against the overlay (bind-mounted read-only).
-    # --max-layers 120 gives finer-grained content-based splitting;
+    # --max-layers 128 gives finer-grained content-based splitting;
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070 build --max-layers 120 \
+        quay.io/coreos/chunkah:latest build --max-layers 128 \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
