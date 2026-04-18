@@ -1,0 +1,16 @@
+id	severity	file	line	title	status
+BUG-1	HIGH	.github/workflows/build.yml	87	Greek Unicode chars in CASD_CLIENT_KEY variable name — condition always false, CI cache push never runs	CONFIRMED
+BUG-2	MEDIUM	.github/workflows/build.yml	79-80	BST log dir /srv/logs inside container not mounted — build failure logs permanently lost	CONFIRMED
+BUG-3	LOW	files/scripts/generate_cargo_sources.py	1	Uses third-party `toml` package instead of stdlib `tomllib` — fails on Python 3.11+ clean envs	CONFIRMED
+BUG-4	LOW	include/aliases.yml	59	thekelleys alias uses http:// (plaintext) — all other aliases use https://	CONFIRMED
+BUG-5	LOW	Containerfile	3	`bootc container lint || true` silences lint failures — build never fails on lint errors	CONFIRMED
+ELIM-1	N/A	.github/workflows/build.yml	—	riscv64 missing from arch dispatchers — intentional, out of x86_64 scope	ELIMINATED
+ELIM-2	N/A	Justfile	—	`just bst source track "$ELEMENTS"` passes elements as single string causing bad arg split	ELIMINATED
+ELIM-3	N/A	elements/bluefin/1password/1password-x86_64.bst	—	1password Debian version revision suffix causes format mismatch	ELIMINATED
+ELIM-4	N/A	Justfile	—	Non-ASCII chars in Justfile decorators are expression-context bugs	ELIMINATED
+ELIM-5	N/A	Justfile	—	`|| true` on `podman rmi`/`podman images` is dangerous	ELIMINATED
+ELIM-6	N/A	.github/workflows/validate-renovate.yml	—	validate-renovate.yml contains bugs	ELIMINATED
+ELIM-7	N/A	elements/bluefin/sudo-rs.bst	—	sudo-rs missing PAM config files (cannot confirm without full build)	ELIMINATED
+ELIM-8	N/A	elements/bluefin/jetbrains-mono-nerd-font.bst	—	Frozen version in jetbrains-mono-nerd-font.bst is a bug	ELIMINATED
+ELIM-9	N/A	files/plymouth/plymouthd.defaults	—	plymouthd.defaults sets wrong theme (bgrt + spinner watermark conflict)	ELIMINATED
+ELIM-10	N/A	.github/workflows/track-bst-sources.yml	—	Auto-merge for shell-extensions source tracking is dangerous	ELIMINATED

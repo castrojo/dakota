@@ -99,12 +99,14 @@ export:
         LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.version=${OCI_IMAGE_VERSION}"
     fi
     
-    # Squash, inject build-date VERSION_ID, and apply dynamic labels.
-    # BST has no string option type, so VERSION_ID is set to "0" in os-release.bst
+    # Squash, inject build-date VERSION_ID + IMAGE_VERSION, and apply dynamic labels.
+    # BST has no string option type, so these are set to "0" in os-release.bst
     # and replaced here at export time — after the BST cache key is already fixed.
+    # IMAGE_VERSION is what the systemd %A specifier reads for ldconfig stamp detection.
     DATE_TAG="$(date -u +%Y%m%d)"
     # shellcheck disable=SC2086
-    printf 'FROM %s\nRUN sed -i "s/^VERSION_ID=.*/VERSION_ID=\\"%s\\"/" /usr/lib/os-release\n' "$IMAGE_ID" "$DATE_TAG" \
+    printf 'FROM %s\nRUN sed -i "s/^VERSION_ID=.*/VERSION_ID=\\"%s\\"/" /usr/lib/os-release \\\n    && sed -i "s/^IMAGE_VERSION=.*/IMAGE_VERSION=\\"%s\\"/" /usr/lib/os-release\n' \
+        "$IMAGE_ID" "$DATE_TAG" "$DATE_TAG" \
         | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all ${LABEL_ARGS} -t "{{image_name}}:{{image_tag}}" -f - .
     $SUDO_CMD podman rmi "$IMAGE_ID" || true
 
