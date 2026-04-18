@@ -1,0 +1,25 @@
+From ffc687caa4fe561c750ed7335d7e16a138406350 Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Sat, 18 Apr 2026 10:19:22 -0400
+Subject: [PATCH] gnomeos-deps/deps: remove ibus-libpinyin (broken runtime,
+ SIGILL in CI)
+
+---
+ elements/gnomeos-deps/deps.bst | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/elements/gnomeos-deps/deps.bst b/elements/gnomeos-deps/deps.bst
+index f164837e1..de1e7b0df 100644
+--- a/elements/gnomeos-deps/deps.bst
++++ b/elements/gnomeos-deps/deps.bst
+@@ -49,7 +49,6 @@ depends:
+ 
+ - gnomeos-deps/ibus-anthy.bst
+ - gnomeos-deps/ibus-hangul.bst
+-- gnomeos-deps/ibus-libpinyin.bst
+ - gnomeos-deps/ibus-typing-booster.bst
+ 
+ - gnomeos-deps/NetworkManager-openconnect.bst
+-- 
+2.52.0
+
