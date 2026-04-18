@@ -40,6 +40,11 @@ config:
       SUPPORT_URL="${SUPPORT_URL}"
       LOGO=img-logo-icon
       DEFAULT_HOSTNAME="bluefin"
+      IMAGE_NAME="${IMAGE_NAME}"
+      IMAGE_VENDOR="${IMAGE_VENDOR}"
+      IMAGE_REF="${IMAGE_REF}"
+      IMAGE_FLAVOR="${IMAGE_FLAVOR}"
+      IMAGE_TAG="${IMAGE_TAG}"
       EOF
       mkdir -p %{install-root}%{sysconfdir}/
       ln -sf ../usr/lib/os-release %{install-root}%{sysconfdir}/os-release
