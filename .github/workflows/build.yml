@@ -435,8 +435,9 @@ jobs:
       - name: Login to GHCR
         if: >-
           steps.arm_build.outcome == 'success' &&
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.event_name == 'merge_group' ||
+           github.event_name == 'schedule' ||
+           github.event_name == 'workflow_dispatch')
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
@@ -444,8 +445,9 @@ jobs:
       - name: Tag image for GHCR
         if: >-
           steps.arm_build.outcome == 'success' &&
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.event_name == 'merge_group' ||
+           github.event_name == 'schedule' ||
+           github.event_name == 'workflow_dispatch')
         run: |
           sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64"
@@ -455,8 +457,9 @@ jobs:
       - name: Push to GHCR
         if: >-
           steps.arm_build.outcome == 'success' &&
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.event_name == 'merge_group' ||
+           github.event_name == 'schedule' ||
+           github.event_name == 'workflow_dispatch')
         run: |
           for tag in aarch64 "${{ github.sha }}-aarch64"; do
             for i in 1 2 3; do
@@ -481,6 +484,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [build, build-aarch64]
     if: >-
+      (github.event_name == 'merge_group' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch') &&
       needs.build.result == 'success' &&
       needs.build-aarch64.outputs.build_ok == 'true'
     permissions:
