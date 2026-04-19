@@ -133,7 +133,7 @@ depends:
 sources:
 - kind: git_repo
   url: github:uutils/coreutils.git
-  ref: e7f2fd9c80417265707e54fb0b260531c86cc39e
+  ref: c4093734e2ebe2efb7d65e216cd1444664bcf26a  # 0.8.0
 - kind: cargo2
   url: crates:crates
   ref:
