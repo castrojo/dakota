@@ -3,7 +3,7 @@ kind: manual
 sources:
 - kind: git_repo
   url: github:StorageB/custom-command-menu.git
-  track: main
+  track: v*
   ref: v14-3-g8391fe24d069fb983999ad8b6439b855af73e07f
 - kind: local
   path: files/dconf

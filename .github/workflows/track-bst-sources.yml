@@ -96,6 +96,14 @@ jobs:
             element: gnomeos-deps/bootc.bst
             branch: auto/track-bootc
             title: "chore(deps): update bootc"
+          - group: manual-merge
+            element: bluefin/sudo-rs.bst
+            branch: auto/track-sudo-rs
+            title: "chore(deps): update sudo-rs"
+          - group: manual-merge
+            element: bluefin/uutils-coreutils.bst
+            branch: auto/track-uutils-coreutils
+            title: "chore(deps): update uutils-coreutils"
 
     steps:
       - name: Should this group run?

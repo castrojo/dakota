@@ -3,7 +3,7 @@ kind: manual
 sources:
 - kind: git_repo
   url: github:Vladimir-csp/xdg-terminal-exec.git
-  track: master
+  track: v*
   ref: e675f61c1fa1175b1295f9d2ed5338f73a2cb679
 
 build-depends:
