@@ -16,6 +16,11 @@ export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infr
 export vm_ram := env("VM_RAM", "8192")
 export vm_cpus := env("VM_CPUS", "4")
 
+# Local OTA registry settings
+registry_name := "egg-registry"
+registry_port := env("REGISTRY_PORT", "5000")
+registry_image := "ghcr.io/project-zot/zot-minimal-linux-amd64:latest"
+
 # OCI metadata (dynamic labels)
 export OCI_IMAGE_CREATED := env("OCI_IMAGE_CREATED", "")
 export OCI_IMAGE_REVISION := env("OCI_IMAGE_REVISION", "")
@@ -609,3 +614,145 @@ lint:
     $SUDO_CMD podman run --rm --privileged --pull=never \
         "{{image_name}}:{{image_tag}}" \
         bootc container lint
+
+# ── Local OTA Registry ───────────────────────────────────────────────
+
+# Start a local zot OCI registry for serving OTA updates to QEMU VMs.
+[group('dev')]
+registry-start:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if podman container exists "{{registry_name}}" 2>/dev/null; then
+        echo "==> Registry '{{registry_name}}' already running on port {{registry_port}}"
+        podman ps --filter "name={{registry_name}}" --format "table {{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}"
+        exit 0
+    fi
+    echo "==> Starting zot registry on port {{registry_port}}..."
+    podman run -d \
+        --name "{{registry_name}}" \
+        --replace \
+        -p "{{registry_port}}:5000" \
+        -v egg-registry-data:/var/lib/registry \
+        "{{registry_image}}"
+    echo "==> Registry running. Push target: localhost:{{registry_port}}/{{image_name}}:{{image_tag}}"
+    echo "    VM pulls from: 10.0.2.2:{{registry_port}}/{{image_name}}:{{image_tag}}"
+
+# Stop the local zot OCI registry (image data preserved in named volume).
+[group('dev')]
+registry-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! podman container exists "{{registry_name}}" 2>/dev/null; then
+        echo "Registry '{{registry_name}}' is not running."
+        exit 0
+    fi
+    echo "==> Stopping registry..."
+    podman stop "{{registry_name}}"
+    echo "==> Registry stopped. Image data preserved in 'egg-registry-data' volume."
+
+# Show running status and catalog of the local zot OCI registry.
+[group('dev')]
+registry-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! podman container exists "{{registry_name}}" 2>/dev/null; then
+        echo "Registry '{{registry_name}}' is not running. Start with: just registry-start"
+        exit 0
+    fi
+    podman ps --filter "name={{registry_name}}" --format "table {{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}"
+    echo ""
+    echo "==> Catalog:"
+    curl -sf "http://localhost:{{registry_port}}/v2/_catalog" | python3 -m json.tool 2>/dev/null || echo "(empty or unreachable)"
+
+# Publish the built image to the local registry for VM OTA updates.
+# Uses gzip compression (not zstd:chunked) — zstd:chunked triggers composefs
+# /var failures tracked in castrojo/dakota#115; revisit after that is fixed.
+[group('dev')]
+publish:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! podman container exists "{{registry_name}}" 2>/dev/null; then
+        echo "ERROR: Registry is not running. Start with: just registry-start" >&2
+        exit 1
+    fi
+    echo "==> Publishing {{image_name}}:{{image_tag}} to localhost:{{registry_port}}..."
+    # Use sudo unless already root (CI runners are root)
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+    # Use gzip (not zstd:chunked) — zstd:chunked triggers composefs /var failures
+    # tracked in castrojo/dakota#115; revisit after that is fixed
+    $SUDO_CMD podman push \
+        --tls-verify=false \
+        --force-compression \
+        --compression-format=gzip \
+        --compression-level=6 \
+        "localhost/{{image_name}}:{{image_tag}}" \
+        "docker://localhost:{{registry_port}}/{{image_name}}:{{image_tag}}"
+    echo "==> Published. NUC/VM pulls from: <host-ip>:{{registry_port}}/{{image_name}}:{{image_tag}}"
+
+# Print the commands to run INSIDE the VM to point bootc at the local registry.
+[group('dev')]
+vm-switch-local:
+    #!/usr/bin/env bash
+    echo "Run this INSIDE the VM to point it at the local registry:"
+    echo ""
+    echo "  sudo mkdir -p /etc/containers/registries.conf.d"
+    echo "  printf '[[registry]]\\nlocation = \"10.0.2.2:{{registry_port}}\"\\ninsecure = true\\n' | sudo tee /etc/containers/registries.conf.d/local.conf"
+    echo "  sudo bootc switch 10.0.2.2:{{registry_port}}/{{image_name}}:{{image_tag}}"
+    echo ""
+    echo "After switching, 'sudo bootc upgrade' pulls from the local registry."
+    echo "Dev loop: just build → just publish → (in VM) sudo bootc upgrade"
+
+# Check that all required tools for the dakota dev workflow are present.
+[group('dev')]
+preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Dakota preflight check..."
+    fail=0
+
+    # podman
+    if command -v podman &>/dev/null; then
+        echo "  ✓ podman $(podman --version | awk '{print $3}')"
+    else
+        echo "  ✗ podman not found" >&2; fail=1
+    fi
+
+    # just
+    if command -v just &>/dev/null; then
+        echo "  ✓ just $(just --version)"
+    else
+        echo "  ✗ just not found" >&2; fail=1
+    fi
+
+    # skopeo
+    if command -v skopeo &>/dev/null; then
+        echo "  ✓ skopeo $(skopeo --version | head -1)"
+    else
+        echo "  ✗ skopeo not found" >&2; fail=1
+    fi
+
+    # bst2 container image
+    if podman image exists ghcr.io/apache/buildstream/bst2:latest 2>/dev/null; then
+        echo "  ✓ bst2 container image present"
+    else
+        echo "  ⚠ bst2 container image not pulled (run: podman pull ghcr.io/apache/buildstream/bst2:latest)"
+    fi
+
+    # bcvk (optional)
+    if command -v bcvk &>/dev/null; then
+        echo "  ✓ bcvk (boot-fast) available"
+    else
+        echo "  ⚠ bcvk not found — just boot-fast unavailable (optional; see https://github.com/bootc-dev/bcvk)"
+    fi
+
+    # QEMU
+    if command -v qemu-system-x86_64 &>/dev/null; then
+        echo "  ✓ qemu-system-x86_64 available"
+    else
+        echo "  ⚠ qemu-system-x86_64 not found — just boot-vm will use container fallback"
+    fi
+
+    [ "$fail" -eq 0 ] && echo "" && echo "==> Preflight OK" || { echo "" && echo "==> Preflight FAILED — fix errors above" >&2; exit 1; }
