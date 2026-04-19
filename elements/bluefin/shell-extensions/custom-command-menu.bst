@@ -36,5 +36,9 @@ config:
     # Install dconf distro keyfile with correct command* keys (fixes: projectbluefin/dakota#228)
     install -Dm644 05-dakota-custom-command-menu \
       "%{install-root}%{sysconfdir}/dconf/db/distro.d/05-dakota-custom-command-menu"
+
+    # Override bluefin-common's ptyxis keybindings with xdg-terminal-exec (Ghostty in dakota)
+    install -Dm644 06-dakota-keybindings \
+      "%{install-root}%{sysconfdir}/dconf/db/distro.d/06-dakota-keybindings"
   - |
     %{install-extra}
