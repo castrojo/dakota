@@ -486,8 +486,15 @@ chunkify image_ref:
         gcc -O2 -o "$FAKECAP_RESTORE" "{{justfile_directory()}}/files/fakecap/fakecap-restore.c"
     fi
 
-    echo "==> Generating component filemap..."
-    python3 scripts/gen-filemap.py
+    # files/filemap.json and files/fakecap-manifest.tsv are pre-committed so CI can
+    # use them without a local BST artifact cache. To regenerate after BST element
+    # changes, delete both files and re-run: python3 scripts/gen-filemap.py
+    if [ ! -s "files/filemap.json" ] || [ ! -s "files/fakecap-manifest.tsv" ]; then
+        echo "==> Generating component filemap..."
+        python3 scripts/gen-filemap.py
+    else
+        echo "==> Using pre-committed component filemap."
+    fi
 
     # Mount the image as a writable overlay so we can physically set
     # user.component xattrs.  chunkah uses rustix raw syscalls for xattr
@@ -512,7 +519,7 @@ chunkify image_ref:
     $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
 
     # Run chunkah against the overlay (bind-mounted read-only).
-    # --max-layers 120 gives finer-grained content-based splitting;
+    # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \

@@ -19,8 +19,8 @@
 
 # Git worktrees
 .worktrees/
-files/filemap.json
-files/fakecap-manifest.tsv
+# files/filemap.json and files/fakecap-manifest.tsv are pre-committed (like Cargo.lock)
+# Delete both and re-run: python3 scripts/gen-filemap.py to regenerate after BST element changes
 files/xattr-db/
 files/fakecap/fakecap-restore
 files/fakecap/fakecap.so
