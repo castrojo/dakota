@@ -6,18 +6,17 @@ depends:
   - bluefin/gnome-shell-extensions.bst
 
   - bluefin/brew.bst
-  - bluefin/brew-tarball/brew-tarball.bst
+  - bluefin/brew-tarball.bst
 
-  - bluefin/tailscale/tailscale.bst
+  - bluefin/tailscale.bst
+  - bluefin/uupd.bst
 
-  - bluefin/1password-cli/1password-cli.bst
-  - bluefin/1password/1password.bst
 
   - bluefin/ghostty.bst
 
-  - bluefin/glow/glow.bst
-  - bluefin/gum/gum.bst
-  - bluefin/fzf/fzf.bst
+  - bluefin/glow.bst
+  - bluefin/gum.bst
+  - bluefin/fzf.bst
 
   - bluefin/common.bst
   - bluefin/wallpapers.bst
@@ -27,6 +26,8 @@ depends:
 
   - bluefin/uutils-coreutils.bst
   - bluefin/sudo-rs.bst
+  - bluefin/efibootmgr.bst
+  - bluefin/xdg-terminal-exec.bst
 
   # Include things missing from the gnomeos base image
   - freedesktop-sdk.bst:components/buildstream2.bst
@@ -42,6 +43,6 @@ depends:
   - gnome-build-meta.bst:gnomeos-deps/bpftop.bst
   - gnome-build-meta.bst:core/sysprof-app.bst
 
-  - gnome-build-meta.bst:gnomeos-deps/distrobox.bst
+  - bluefin/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst

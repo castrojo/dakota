@@ -4,7 +4,7 @@ sources:
 - kind: git_repo
   url: github:projectbluefin/common.git
   track: main
-  ref: v2026.03-17-g316d594c092571a53966e5605daafb4b1f0060d3
+  ref: v2026.04-37-g33ab3a3a4df4bb06f6a591d294f520c1295c4dae
 - kind: git_module
   url: github:projectbluefin/branding/
   path: bluefin-branding
@@ -19,6 +19,7 @@ public:
     overlap-whitelist:
     - /etc/environment
     - /etc/containers/policy.json
+    - /usr/share/pixmaps/gnome-boot-logo.png
 
 variables:
   strip-binaries: ""
@@ -37,6 +38,14 @@ config:
     cp -r system_files/bluefin/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r system_files/shared/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r bluefin-branding/system_files/etc/./ "%{install-root}%{sysconfdir}/"
+
+    # Map Bluefin icons to GNOME OS expected names
+    # About dialog (gnome-control-center reads LOGO=img-logo-icon from os-release,
+    # then looks for img-logo-icon-text-dark, img-logo-icon-text, img-logo-icon-dark, img-logo-icon)
+    cp "%{install-root}%{datadir}/pixmaps/fedora-logo-icon.png" "%{install-root}%{datadir}/pixmaps/img-logo-icon.png"
+    cp "%{install-root}%{datadir}/pixmaps/fedora-logo-icon.png" "%{install-root}%{datadir}/pixmaps/img-logo-icon-dark.png"
+    # Override GNOME OS boot logo with Bluefin branding
+    cp "%{install-root}%{datadir}/pixmaps/fedora-gdm-logo.png" "%{install-root}%{datadir}/pixmaps/gnome-boot-logo.png"
 
     # Create dconf profile so the distro system database is read
     mkdir -p "%{install-root}%{sysconfdir}/dconf/profile"

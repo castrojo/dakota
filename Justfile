@@ -104,9 +104,12 @@ export:
         LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.version=${OCI_IMAGE_VERSION}"
     fi
     
-    # Squash and apply dynamic labels
+    # Squash, inject build-date VERSION_ID, and apply dynamic labels.
+    # BST has no string option type, so VERSION_ID is set to "0" in os-release.bst
+    # and replaced here at export time — after the BST cache key is already fixed.
+    DATE_TAG="$(date -u +%Y%m%d)"
     # shellcheck disable=SC2086
-    printf 'FROM %s\n' "$IMAGE_ID" \
+    printf 'FROM %s\nRUN sed -i "s/^VERSION_ID=.*/VERSION_ID=\\"%s\\"/" /usr/lib/os-release \\\n    && sed -i "s/^IMAGE_VERSION=.*/IMAGE_VERSION=\\"%s\\"/" /usr/lib/os-release\n' "$IMAGE_ID" "$DATE_TAG" "$DATE_TAG" \
         | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all ${LABEL_ARGS} -t "{{image_name}}:{{image_tag}}" -f - .
     $SUDO_CMD podman rmi "$IMAGE_ID" || true
 
@@ -457,6 +460,10 @@ show-me-the-future:
 
 # ── Chunkah ──────────────────────────────────────────────────────────
 # Use the pre-built chunkah image from quay.io
+# TODO: once coreos/chunkah#113 lands (libc fallback for xattr reads),
+# the overlay + xattr-apply step can be removed. chunkah can then be run
+# with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
+# See also: projectbluefin/dakota#231.
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -468,7 +475,7 @@ chunkify image_ref:
     fi
 
     echo "==> Chunkifying {{image_ref}}..."
-    
+
     # Get config from existing image
     CONFIG=$($SUDO_CMD podman inspect "{{image_ref}}")
 
@@ -505,6 +512,7 @@ chunkify image_ref:
     $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
 
     # Run chunkah against the overlay (bind-mounted read-only).
+    # --max-layers 120 gives finer-grained content-based splitting;
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
@@ -516,11 +524,11 @@ chunkify image_ref:
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
-    
+
     # Parse the loaded image reference
     NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
               echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
-    
+
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"

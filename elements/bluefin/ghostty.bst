@@ -4,7 +4,7 @@ variables:
   strip-binaries: ""
 
 build-depends:
-  - bluefin/zig/zig.bst
+  - bluefin/zig.bst
   - freedesktop-sdk.bst:components/tar.bst
   - freedesktop-sdk.bst:components/gzip.bst
   - freedesktop-sdk.bst:components/gettext.bst
@@ -19,40 +19,56 @@ depends:
 sources:
   # Ghostty source tarball
   - kind: tar
-    url: ghostty_releases:1.2.3/ghostty-1.2.3.tar.gz
-    ref: 559770fe9773161e93e3dd9177d916e27037d7f548edcf6186eabc571c0e520b
+    url: ghostty_releases:1.3.1/ghostty-1.3.1.tar.gz
+    ref: 3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb
 
   # Top-level Zig dependencies
   - kind: remote
-    url: github_files:mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz
-    ref: 29aa3360a121853ffab089de7fbffc3bfeb42c304937ef1099d2ee358d469267
+    url: ghostty_deps:libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz
+    ref: 6003ea6b96e4a518a128f932327d79a11bd30996b13b73baeb29916379487dd7
     directory: zig-deps
 
   - kind: remote
-    url: github_files:vancluever/z2d/archive/refs/tags/v0.8.1.tar.gz
-    ref: d036c3292600d5e8e1571fd66ce9304e00f9ecf35115c9d1be2a8187cc693d9d
+    url: ghostty_deps:vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz
+    ref: 2e72332bc89c5b541ec6e6bd48769e1f3fb757c4006f3d1af940b54f9b088ef6
     directory: zig-deps
 
   - kind: remote
-    url: ghostty_deps:ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz
-    ref: 72c7bdf3e16df105235fe3fcf32c987dac49389190f4ced89b0ee31710f3f3d9
+    url: ghostty_deps:z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz
+    ref: 69f21da2efd5ee0937fe55c4d09e48afc4fb2f91a01ef167c8c275ae046797f7
     directory: zig-deps
 
   - kind: remote
-    url: codeberg_files:ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz
-    ref: 13bec6675e403d86db3b55b39ae262f1e1bdfe24056dcd82824341c6308b5219
+    url: ghostty_deps:zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz
+    ref: dd84af737625356fcd722cb30909f3b2e8d702667cf579714aa7eabc0ac08ecc
     directory: zig-deps
 
   - kind: remote
-    url: github_files:natecraddock/zf/archive/7aacbe6d155d64d15937ca95ca6c014905eb531f.tar.gz
-    ref: de7ba535077fe2b678a5a7972585f002588d37244db08397feadf3d4907c0bb2
+    url: ghostty_deps:zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz
+    ref: 4c2018e56015d39504b8090386ad9ce9393f38380085d9c32373bf7e56fc73a3
     directory: zig-deps
 
   - kind: remote
-    url: github_files:jcollie/ghostty-gobject/releases/download/0.15.1-2025-09-04-48-1/ghostty-gobject-0.15.1-2025-09-04-48-1.tar.zst
-    ref: 87a68a51eac6957d804d511ea0dd377966aa0eabd498a75e760a71ad2a07beb6
+    url: ghostty_deps:uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz
+    ref: d0abee0f4f8bd6eae3c051777e16e7c42d8964aaaa015591c4e565703f465f95
     directory: zig-deps
 
+  - kind: remote
+    url: ghostty_deps:zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz
+    ref: 4f146b735ed0d527f520e3bf71d3e93f72c3d0fa583ae8edd3a4851f7079124e
+    directory: zig-deps
+
+  - kind: remote
+    url: ghostty_deps:zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz
+    ref: 3b015d928af04e9e26272bc15eb4dbb4d9a9d469eb6d290a0ddae673b77c4568
+    directory: zig-deps
+
+  - kind: remote
+    url: ghostty_deps:gobject-2025-11-08-23-1.tar.zst
+    ref: d9bd4306f0081d8e4b848b6adfeabd2fab49822ee2b679eb4801dcedf5d60c48
+    directory: zig-deps
+
+  # Wayland dependencies
   - kind: remote
     url: ghostty_deps:wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz
     ref: ea4191d68e437677e51f3aacde27829810144e931d397a327dc6035e2c39c50d
@@ -68,6 +84,7 @@ sources:
     ref: 5c58ba214acd8e6bca3426dc08b022c46a8dd997b29a1b3e28badf71c20df441
     directory: zig-deps
 
+  # Fonts
   - kind: remote
     url: ghostty_deps:JetBrainsMono-2.304.tar.gz
     ref: c57a691e8b82ad098b5963f3959032e4038f391087af7715885ba59046105cc4
@@ -78,9 +95,10 @@ sources:
     ref: 1164d1b956d4bde248d7b2f0998c43cc94f5202431a1564a793895b1e73b0d04
     directory: zig-deps
 
+  # Themes
   - kind: remote
-    url: github_files:mbadolato/iTerm2-Color-Schemes/releases/download/release-20260202-151632-49169e9/ghostty-themes.tgz
-    ref: c4dfb789068ddee209fc1ce4805c4ba23807a9ebb3d61b4d7158dc8d647b4238
+    url: ghostty_deps:ghostty-themes-release-20260216-151611-fc73ce3.tgz
+    ref: 14200bb86a0c814ab69609d500b280b396b6d2eb835edf0676de4a789c0aa8fd
     directory: zig-deps
 
   # Nested pkg/ dependencies
@@ -90,8 +108,13 @@ sources:
     directory: zig-deps
 
   - kind: remote
-    url: ghostty_deps:imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz
-    ref: a05fd01e04cf11ab781e28387c621d2e420f1e6044c8e27a25e603ea99ef7860
+    url: ghostty_deps:DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz
+    ref: 8bfec500e00926f679853ee23d67cc392d3c3181733ca4704738651d3f70baa3
+    directory: zig-deps
+
+  - kind: remote
+    url: github_files:ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz
+    ref: c816c20e8c75f3e15ae867350e79925502d1a6a85938bb1a73b8927e5f31f9cb
     directory: zig-deps
 
   - kind: remote
@@ -155,11 +178,6 @@ sources:
     directory: zig-deps
 
   - kind: remote
-    url: github_files:JuliaStrings/utf8proc/archive/refs/tags/v2.8.0.tar.gz
-    ref: a0a60a79fe6f6d54e7d411facbfcc867a6e198608f2cd992490e46f04b1bcecc
-    directory: zig-deps
-
-  - kind: remote
     url: ghostty_deps:utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz
     ref: ffc668a310e77607d393f3c18b32715f223da1eac4c4d6e0579a11df8e6b59cf
     directory: zig-deps
@@ -179,20 +197,15 @@ sources:
     ref: 17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c
     directory: zig-deps
 
-  # Git Zig dependencies (need manual cache placement)
+  # Transitive dependencies from vaxis
   - kind: remote
-    url: github_files:rockorager/libvaxis/archive/1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23.tar.gz
-    ref: 36a508b4fe13eebcee5f7bcfcac774dd427c962997a4e7543838a791d986df86
-    directory: zig-deps-git
+    url: github_files:ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz
+    ref: 2c1ed76ba2b35514544b0c27c9633ecba7c31be9080e37e7a010c93b5a1bc553
+    directory: zig-deps
 
   - kind: remote
-    url: github_files:TUSF/zigimg/archive/31268548fe3276c0e95f318a6c0d2ab10565b58d.tar.gz
-    ref: c09e3a403e883f2ea90d2e201b051bc67c1ec1ca89a55da73d50020dbc7dfbf1
-    directory: zig-deps-git
-
-  - kind: remote
-    url: codeberg_files:atman/zg/archive/4a002763419a34d61dcbb1f415821b83b9bf8ddc.tar.gz
-    ref: c887c08d72b11f312f15f1ce1dafe4ba8afacd3f459005e69f2d5fcee3618d7a
+    url: github_files:jacobsandlund/uucode/archive/5f05f8f83a75caea201f12cc8ea32a2d82ea9732.tar.gz
+    ref: 40b90ae087e26546a57961c40ae0cae1926d94140502bafd0f551db9de66e62a
     directory: zig-deps-git
 
 config:
@@ -214,7 +227,7 @@ config:
         }
       done
 
-    # Stage 3: Place git deps and fix hash mismatches
+    # Stage 3: Place git deps that can't be resolved via zig fetch
     - |
       export ZIG_GLOBAL_CACHE_DIR="/tmp/zig-cache"
 
@@ -227,23 +240,10 @@ config:
         echo "Placed git dep at $dest"
       }
 
+      # uucode: transitive dep of vaxis via git+https://
       place_git_dep \
-        "zig-deps-git/1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23.tar.gz" \
-        "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn"
-
-      place_git_dep \
-        "zig-deps-git/31268548fe3276c0e95f318a6c0d2ab10565b58d.tar.gz" \
-        "zigimg-0.1.0-lly-O6N2EABOxke8dqyzCwhtUCAafqP35zC7wsZ4Ddxj"
-
-      place_git_dep \
-        "zig-deps-git/4a002763419a34d61dcbb1f415821b83b9bf8ddc.tar.gz" \
-        "zg-0.13.4-AAAAAGiZ7QLz4pvECFa_wG4O4TP4FLABHHbemH2KakWM"
-
-      # iterm2_themes: original GitHub release was deleted, newer release has
-      # different content hash. Alias the new hash to the expected hash.
-      ln -sf \
-        "N-V-__8AAKlTAwClvdUfsAoiLgM6sb2NPZNnS6wzCiIs252Z" \
-        "$ZIG_GLOBAL_CACHE_DIR/p/N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y"
+        "zig-deps-git/5f05f8f83a75caea201f12cc8ea32a2d82ea9732.tar.gz" \
+        "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM"
 
   install-commands:
     - |
@@ -257,4 +257,4 @@ config:
         -Dcpu=baseline \
         -Dpie=true \
         -Demit-docs=false \
-        -Dversion-string=1.2.3
+        -Dversion-string=1.3.1

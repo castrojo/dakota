@@ -3,18 +3,38 @@
 
 [Bluefin's](https://projectbluefin.io) final form. 
 
-> How dare you.
->
-> -- John Bazzite
+`projectbluefin/dakota` is built on [GNOME OS](https://os.gnome.org/) using [BuildStream](https://buildstream.build/) and then published as a bootc container.
 
-`projectbluefin/dakota` is built on [GNOME OS](https://os.gnome.org/) using [BuildStream](https://buildstream.build/). This is a prototype and not ready and may bite.
-
-![Dakorator](https://github.com/user-attachments/assets/ee92291d-a617-496e-abb6-9045a4c665ce)
+<a href="https://docs.projectbluefin.io/changelogs">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://docs.projectbluefin.io/img/cards/dakota-dark.png">
+    <img src="https://docs.projectbluefin.io/img/cards/dakota-light.png" alt="Bluefin Dakota" width="800">
+  </picture>
+</a>
 
 ## Status
 
-- Consume GNOME nightly bootc image (done)
-- Final assembly in this repo (done)
+- Alpha, public testing and [filing issues is appreciated](https://github.com/projectbluefin/dakota/issues)!
+
+## ISO Download
+
+[dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso) · [Checksum](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM)
+
+### ISO Archive
+
+Some ISOs are duds, so here's an archive:
+
+<!-- iso-table-start -->
+| Date | ISO | Checksum |
+|------|-----|----------|
+| 2026-04-16 | [dakota-live-20260416-a7cd634.iso](https://projectbluefin.dev/dakota-live-20260416-a7cd634.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260416-a7cd634.iso-CHECKSUM) |
+| 2026-04-16 | [dakota-live-20260416-fa525c1.iso](https://projectbluefin.dev/dakota-live-20260416-fa525c1.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260416-fa525c1.iso-CHECKSUM) |
+| 2026-04-15 | [dakota-live-20260415-fa525c1.iso](https://projectbluefin.dev/dakota-live-20260415-fa525c1.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260415-fa525c1.iso-CHECKSUM) |
+| 2026-04-15 | [dakota-live-20260415-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260415-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260415-c28ffaf.iso-CHECKSUM) |
+| 2026-04-14 | [dakota-live-20260414-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260414-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260414-c28ffaf.iso-CHECKSUM) |
+| 2026-04-13 | [dakota-live-20260413-c28ffaf.iso](https://projectbluefin.dev/dakota-live-20260413-c28ffaf.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260413-c28ffaf.iso-CHECKSUM) |
+| 2026-04-13 | [dakota-live-20260413-9b9756e.iso](https://projectbluefin.dev/dakota-live-20260413-9b9756e.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260413-9b9756e.iso-CHECKSUM) |
+<!-- iso-table-end -->
 
 ## Goals
 
@@ -29,6 +49,10 @@
     git clone https://github.com/projectbluefin/dakota.git
     cd dakota
     just show-me-the-future
+
+> How dare you.
+>
+> -- John Bazzite
 
 ## Trying it: 
 
@@ -147,12 +171,4 @@ patches/             Patches applied to upstream projects
 Justfile             All build commands
 ```
 
-## Roadmap
-
-These features are planned but not yet implemented:
-
-- **`just preflight`** -- automated prerequisite checking with Homebrew auto-install
-- **Local OTA updates** -- `just registry-start` / `just publish` for iterative VM updates via `bootc upgrade`
-- **`just add-package <url>`** -- scaffolding a new package element from a GitHub release URL
-- **Rebranding guide** -- documentation for people who want to change the image name/identity
-- **Multi-arch builds** -- aarch64 support
+![Dakorator](https://github.com/user-attachments/assets/ee92291d-a617-496e-abb6-9045a4c665ce)

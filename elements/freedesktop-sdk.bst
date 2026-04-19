@@ -4,7 +4,7 @@ sources:
 - kind: git_repo
   url: gitlab:freedesktop-sdk/freedesktop-sdk.git
   track: freedesktop-sdk-25.08*
-  ref: freedesktop-sdk-25.08.8-0-gd3387a9ae68e2781dfcc9b4f587e3c52d28a4364
+  ref: freedesktop-sdk-25.08.9-0-g3361ede6aa02d79d2861e9c8782c799ab07d1cea
 - kind: patch_queue
   path: patches/freedesktop-sdk
 
@@ -18,8 +18,6 @@ config:
         bootstrap_build_arch: 'aarch64'
     - arch == "ppc64le":
         bootstrap_build_arch: "ppc64le"
-    - arch == "riscv64":
-        bootstrap_build_arch: "x86_64"
 
   overrides:
     components/at-spi2-core.bst: gnome-build-meta.bst:sdk/at-spi2-core.bst

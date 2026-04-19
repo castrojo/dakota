@@ -14,6 +14,8 @@ environment:
   IMAGE_REF: "ostree-image-signed:docker://ghcr.io/projectbluefin/dakota"
   IMAGE_FLAVOR: "main"
   IMAGE_TAG: "latest"
+  VERSION_ID: "0"
+  IMAGE_VERSION: "0"
 
   IMAGE_PRETTY_NAME: "Bluefin"
   HOME_URL: "https://projectbluefin.io"
@@ -40,6 +42,13 @@ config:
       SUPPORT_URL="${SUPPORT_URL}"
       LOGO=img-logo-icon
       DEFAULT_HOSTNAME="bluefin"
+      IMAGE_NAME="${IMAGE_NAME}"
+      IMAGE_VENDOR="${IMAGE_VENDOR}"
+      IMAGE_REF="${IMAGE_REF}"
+      IMAGE_FLAVOR="${IMAGE_FLAVOR}"
+      IMAGE_TAG="${IMAGE_TAG}"
+      VERSION_ID="${VERSION_ID}"
+      IMAGE_VERSION="${IMAGE_VERSION}"
       EOF
       mkdir -p %{install-root}%{sysconfdir}/
       ln -sf ../usr/lib/os-release %{install-root}%{sysconfdir}/os-release
