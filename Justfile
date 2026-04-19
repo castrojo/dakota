@@ -734,3 +734,30 @@ lint:
     $SUDO_CMD podman run --rm --privileged --pull=never \
         "{{image_name}}:{{image_tag}}" \
         bootc container lint
+
+# ── NUC hardware validation ─────────────────────────────────────────
+
+# Validate the current NUC state after a bootc upgrade + reboot.
+# SSHes to NUC and checks GDM, booted digest, os-release, ldconfig stamp.
+# Usage: just validate-nuc [NUC_IP]
+# Observed reboot time: ~90-120s. Use 180s timeout in automated loops.
+#
+# Future: just test-nuc = just publish + bootc upgrade on NUC + reboot + validate-nuc
+# Prerequisite for full automation: passwordless SSH key auth on NUC.
+[group('dev')]
+validate-nuc nuc_ip="192.168.1.247":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    NUC="{{nuc_ip}}"
+    echo "==> Validating NUC at ${NUC}..."
+    ssh jorge@${NUC} "
+        echo '=== bootc status ==='
+        sudo bootc status --format=json | grep -o '"imageDigest":"[^"]*"' | head -1
+        echo '=== os-release ==='
+        grep -E 'VERSION_ID|IMAGE_VERSION' /usr/lib/os-release
+        echo '=== GDM ==='
+        systemctl is-active gdm
+        echo '=== ldconfig stamp ==='
+        ls /etc/ld.so.cache.stamp-* 2>/dev/null && echo stamp OK || echo WARNING: no stamp
+    "
+    echo "==> Validation complete."
