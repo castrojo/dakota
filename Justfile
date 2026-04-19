@@ -21,6 +21,11 @@ export OCI_IMAGE_CREATED := env("OCI_IMAGE_CREATED", "")
 export OCI_IMAGE_REVISION := env("OCI_IMAGE_REVISION", "")
 export OCI_IMAGE_VERSION := env("OCI_IMAGE_VERSION", "latest")
 
+# ── Dev registry (local zot) ──────────────────────────────────────────
+registry_image := "ghcr.io/project-zot/zot-minimal-linux-amd64:latest"
+registry_name  := "egg-registry"
+registry_port  := env("REGISTRY_PORT", "5000")
+
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
 # Set BST_FLAGS env var to prepend flags (e.g. --no-interactive --config ...).
@@ -536,6 +541,132 @@ chunkify image_ref:
         echo "==> Retagging chunked image to {{image_ref}}..."
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"
     fi
+
+# ── Dev registry + publish ───────────────────────────────────────────
+
+# Check prerequisites for publish pipeline
+[group('dev')]
+preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Checking prerequisites..."
+    command -v podman >/dev/null || { echo "ERROR: podman not found" >&2; exit 1; }
+    command -v skopeo >/dev/null || { echo "ERROR: skopeo not found" >&2; exit 1; }
+    AVAIL_GB=$(df -BG /var/tmp | awk 'NR==2{gsub("G",""); print $4}')
+    [ "${AVAIL_GB}" -ge 20 ] || { echo "ERROR: /var/tmp has only ${AVAIL_GB}GB free (need 20GB)" >&2; exit 1; }
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    $SUDO_CMD podman image exists "localhost/{{image_name}}:{{image_tag}}" \
+        || { echo "ERROR: image localhost/{{image_name}}:{{image_tag}} not found — run just build first" >&2; exit 1; }
+    curl -sf "http://localhost:{{registry_port}}/v2/" >/dev/null \
+        || echo "WARN: registry not reachable at localhost:{{registry_port}} — run just registry-start"
+    echo "PASS: prerequisites met"
+
+# Start local zot OCI registry (idempotent)
+[group('dev')]
+registry-start:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    if $SUDO_CMD podman ps --filter name={{registry_name}} --filter status=running -q | grep -q .; then
+        echo "Registry {{registry_name}} already running on port {{registry_port}}"
+        exit 0
+    fi
+    echo "==> Starting {{registry_name}} on port {{registry_port}}..."
+    $SUDO_CMD podman run -d --name {{registry_name}} --replace \
+        -p "{{registry_port}}:5000" \
+        -v "{{registry_name}}-data:/var/lib/registry" \
+        "{{registry_image}}"
+    sleep 2
+    curl -sf "http://localhost:{{registry_port}}/v2/" >/dev/null \
+        && echo "Registry ready at localhost:{{registry_port}}" \
+        || { echo "ERROR: registry failed to start" >&2; exit 1; }
+
+# Stop local zot OCI registry (preserves volume data)
+[group('dev')]
+registry-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    $SUDO_CMD podman stop {{registry_name}} 2>/dev/null || true
+    echo "Registry stopped (data preserved in {{registry_name}}-data volume)"
+
+# Show registry status and catalog
+[group('dev')]
+registry-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    echo "==> Container status:"
+    $SUDO_CMD podman ps --filter name={{registry_name}}
+    echo ""
+    echo "==> Catalog:"
+    curl -sf "http://localhost:{{registry_port}}/v2/_catalog" 2>/dev/null \
+        | python3 -m json.tool 2>/dev/null || echo "(registry not reachable)"
+
+# Chunkify, export via OCI dir (bypasses zstd:chunked blob cache), push plain zstd to local registry.
+# Plain zstd required: bootc composefs-oci uses a plain ZstdDecoder and cannot consume zstd:chunked blobs.
+# oci-dir export produces raw uncompressed tar streams; skopeo compresses fresh (no cache reuse).
+[group('dev')]
+publish:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+
+    # Gate: registry must be running
+    if ! $SUDO_CMD podman ps --filter name={{registry_name}} --filter status=running -q | grep -q .; then
+        echo "ERROR: Registry '{{registry_name}}' not running. Start with: just registry-start" >&2
+        exit 1
+    fi
+
+    # Disk-space preflight: need 20 GB on /var/tmp for OCI dir + overlay headroom
+    AVAIL_GB=$(df -BG /var/tmp | awk 'NR==2{gsub("G",""); print $4}')
+    if [ "${AVAIL_GB}" -lt 20 ]; then
+        echo "ERROR: /var/tmp has only ${AVAIL_GB}GB free (need 20GB)" >&2
+        exit 1
+    fi
+
+    # Chunkify: splits into 120 content-addressed layers with xattrs on /var/tmp overlay
+    just chunkify "{{image_name}}:{{image_tag}}"
+
+    # Export to OCI dir — uncompressed, bypasses zstd:chunked blob cache in containers-storage
+    OCI_DIR=$(mktemp -d -p /var/tmp dakota-publish-XXXX)
+    trap 'sudo rm -rf "$OCI_DIR"' EXIT
+
+    echo "==> Exporting to OCI dir: $OCI_DIR"
+    $SUDO_CMD podman image save --format=oci-dir \
+        -o "$OCI_DIR" "localhost/{{image_name}}:{{image_tag}}"
+
+    # Push from OCI dir with plain zstd via skopeo (skopeo supports oci: source transport;
+    # reads raw uncompressed tars from disk — no blob cache, no chunked annotations)
+    echo "==> Pushing plain zstd to localhost:{{registry_port}}/{{image_name}}:{{image_tag}}..."
+    skopeo copy \
+        --insecure-policy \
+        --dest-tls-verify=false \
+        --dest-compress-format=zstd \
+        --dest-compress-level=1 \
+        "oci:${OCI_DIR}" \
+        "docker://localhost:{{registry_port}}/{{image_name}}:{{image_tag}}"
+
+    # Verify manifest: assert plain zstd mediaType + no zstd:chunked annotations
+    echo "==> Verifying manifest..."
+    MANIFEST=$(curl -sf \
+        "http://localhost:{{registry_port}}/v2/{{image_name}}/manifests/{{image_tag}}" \
+        -H 'Accept: application/vnd.oci.image.manifest.v1+json')
+    LAYER_COUNT=$(echo "$MANIFEST" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['layers']))")
+    BAD_LAYERS=$(echo "$MANIFEST" | python3 -c "import sys,json; m=json.load(sys.stdin); print(len([l for l in m['layers'] if 'tar+zstd' not in l.get('mediaType','')]))")
+    CHUNKED_ANNS=$(echo "$MANIFEST" | python3 -c "import sys,json; m=json.load(sys.stdin); print(sum(1 for l in m['layers'] for k in l.get('annotations',{}) if 'zstd-chunked' in k))")
+    echo "==> Published: ${LAYER_COUNT} layers, ${BAD_LAYERS} bad mediaTypes, ${CHUNKED_ANNS} zstd:chunked annotations"
+    if [ "$BAD_LAYERS" -gt 0 ] || [ "$CHUNKED_ANNS" -gt 0 ]; then
+        echo "FAIL: manifest contains non-zstd layers or zstd:chunked annotations" >&2
+        exit 1
+    fi
+    echo "PASS: ${LAYER_COUNT} layers, all plain zstd, no chunked annotations"
+
+# Print bootc switch command for NUC (uses LAN IP — NUC cannot reach ghost's localhost)
+[group('dev')]
+vm-switch-local:
+    @echo "Run on NUC (192.168.1.247):"
+    @echo "  sudo bootc switch 192.168.1.102:{{registry_port}}/{{image_name}}:{{image_tag}}"
 
 # ── bcvk (fast VM testing) ───────────────────────────────────────────
 
