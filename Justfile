@@ -235,12 +235,21 @@ boot-vm $base_dir=base_dir:
             cp "$OVMF_VARS_SRC" "$OVMF_VARS"
         fi
 
-        echo "==> Booting ${DISK} in QEMU (UEFI, KVM)..."
+        # Auto-detect headless: use -display none when no graphical display is available
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+            DISPLAY_ARGS="-display gtk -device virtio-vga -device virtio-keyboard -device virtio-mouse"
+            echo "==> Booting ${DISK} in QEMU (UEFI, KVM, display: gtk)..."
+        else
+            DISPLAY_ARGS="-display none"
+            echo "==> Booting ${DISK} in QEMU (UEFI, KVM, headless)..."
+            echo "    SSH available on port 2222 once the system is up"
+        fi
         echo "    Firmware: ${OVMF_CODE}"
         echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
         echo "    Serial debug shell on ttyS1 available via QEMU monitor"
         echo ""
 
+        # shellcheck disable=SC2086
         qemu-system-x86_64 \
             -enable-kvm \
             -m "{{vm_ram}}" \
@@ -249,16 +258,14 @@ boot-vm $base_dir=base_dir:
             -drive file="${DISK}",format=raw,if=virtio \
             -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
             -drive if=pflash,format=raw,file="${OVMF_VARS}" \
-            -device virtio-vga \
-            -display gtk \
-            -device virtio-keyboard \
-            -device virtio-mouse \
             -device virtio-net-pci,netdev=net0 \
             -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
             -chardev stdio,id=char0,mux=on,signal=off \
             -serial chardev:char0 \
-            -serial chardev:char0 \
-            -mon chardev=char0
+            -serial unix:/tmp/qemu-ttyS1.sock,server,nowait \
+            -mon chardev=char0 \
+            -monitor unix:/tmp/qemu-monitor.sock,server,nowait \
+            ${DISPLAY_ARGS}
 
     else
         echo "==> qemu-system-x86_64 not found, falling back to docker.io/qemux/qemu-docker..."
