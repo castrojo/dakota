@@ -112,7 +112,7 @@ export:
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
     # Step: Chunkify (reorganize layers)
-    # just chunkify "{{image_name}}:{{image_tag}}"
+    just chunkify "{{image_name}}:{{image_tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -481,8 +481,15 @@ chunkify image_ref:
         gcc -O2 -o "$FAKECAP_RESTORE" "{{justfile_directory()}}/files/fakecap/fakecap-restore.c"
     fi
 
-    echo "==> Generating component filemap..."
-    python3 scripts/gen-filemap.py
+    # files/filemap.json and files/fakecap-manifest.tsv are pre-committed so CI can
+    # use them without a local BST artifact cache. To regenerate after BST element
+    # changes, delete both files and re-run: python3 scripts/gen-filemap.py
+    if [ ! -s "files/filemap.json" ] || [ ! -s "files/fakecap-manifest.tsv" ]; then
+        echo "==> Generating component filemap..."
+        python3 scripts/gen-filemap.py
+    else
+        echo "==> Using pre-committed component filemap."
+    fi
 
     # Mount the image as a writable overlay so we can physically set
     # user.component xattrs.  chunkah uses rustix raw syscalls for xattr

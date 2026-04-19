@@ -255,7 +255,10 @@ jobs:
         run: |
           for tag in latest "${{ github.sha }}"; do
             for i in 1 2 3; do
-              sudo podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
+              sudo skopeo copy \
+                --dest-compress-format=zstd \
+                "containers-storage:${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" \
+                "docker://${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
               echo "Push attempt $i failed for tag ${tag}, retrying..."
               sleep 5
             done
@@ -437,7 +440,10 @@ jobs:
         run: |
           for tag in aarch64 "aarch64-${{ github.sha }}"; do
             for i in 1 2 3; do
-              sudo podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
+              sudo skopeo copy \
+                --dest-compress-format=zstd \
+                "containers-storage:${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" \
+                "docker://${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
               echo "Push attempt $i failed for tag ${tag}, retrying..."
               sleep 5
             done
