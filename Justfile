@@ -514,13 +514,13 @@ chunkify image_ref:
     $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
 
     # Run chunkah against the overlay (bind-mounted read-only).
-    # --max-layers 128 gives finer-grained content-based splitting;
+    # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/coreos/chunkah:latest build --max-layers 128 \
+        quay.io/coreos/chunkah:latest build --max-layers 120 \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
