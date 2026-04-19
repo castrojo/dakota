@@ -39,7 +39,7 @@ sources:
 - kind: git_repo
   url: github:89luca89/distrobox.git
   track: next
-  ref: f547b6d6730f5ad634f6abe41b776f7b7fd0b54d
+  ref: 2.0.0-rc.1-23-g9f6e852518b722ef12852d5b6107eac0bba8d558
 
 - kind: local
   path: files/distrobox/modules.txt
