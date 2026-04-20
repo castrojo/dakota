@@ -36,7 +36,7 @@ registry_port  := env("REGISTRY_PORT", "5000")
 bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "${HOME}/.cache/buildstream"
+    mkdir -p "${HOME}/.cache/buildstream" "${HOME}/.config/buildstream"
     # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
@@ -46,6 +46,7 @@ bst *ARGS:
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream:/root/.config/buildstream:ro" \
         -w /src \
         "{{bst2_image}}" \
         bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
