@@ -28,7 +28,7 @@ depends:
 
 config:
   configure-commands:
-    - sed -i "s|/app/lib/ecl-24.5.10/|/usr/lib/ecl-24.5.10/|g" src/meson.build
+    - sed -i "s|/app/lib/ecl-24.5.10/|/usr/lib/x86_64-linux-gnu/ecl-24.5.10/|g" src/meson.build
     - "%{meson}"
 
   install-commands:
