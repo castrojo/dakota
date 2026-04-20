@@ -1,0 +1,17 @@
+# Saturn launcher keybinding
+#
+# Binds Super+Space to launch Saturn.
+# Clears the default GNOME switch-input-source binding (also Super+Space)
+# so there is no conflict.
+
+[org/gnome/desktop/wm/keybindings]
+switch-input-source=@as []
+switch-input-source-backward=@as []
+
+[org/gnome/settings-daemon/plugins/media-keys]
+custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn/']
+
+[org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn]
+name='Saturn'
+command='/usr/bin/saturn'
+binding='<Super>space'
