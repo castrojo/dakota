@@ -2,16 +2,23 @@ kind: autotools
 
 # Embedded Common Lisp runtime — required by saturn-cl-deps and saturn at runtime.
 # Version pinned to 24.5.10 (same as Saturn's Flatpak manifest).
+#
+# Use system GMP to avoid ECL's bundled GMP inheriting CFLAGS and failing its
+# configure ABI detection. CFLAGS: -std=c99 -O2 are sufficient (no -fasm needed).
 
 build-depends:
   - freedesktop-sdk.bst:public-stacks/buildsystem-autotools.bst
+  - freedesktop-sdk.bst:components/gmp.bst
 
 depends:
   - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
+  - freedesktop-sdk.bst:components/gmp.bst
+
+variables:
+  conf-local: "--with-gmp=/usr"
 
 environment:
-  # ECL has known compiler issues without c99 mode and these optimisation flags
-  CFLAGS: "-std=c99 -O2 -fasm"
+  CFLAGS: "-std=c99 -O2"
 
 sources:
   - kind: git_repo
