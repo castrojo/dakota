@@ -6,7 +6,6 @@ depends:
   - bluefin/shell-extensions/blur-my-shell.bst
   - bluefin/shell-extensions/dash-to-dock.bst
   - bluefin/shell-extensions/gsconnect.bst
-  - bluefin/shell-extensions/search-light.bst
   - bluefin/shell-extensions/custom-command-menu.bst
   - bluefin/shell-extensions/caffeine.bst
   # Since we use gnomeos nightly atm, no extension works with the current shell version

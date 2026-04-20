@@ -30,8 +30,6 @@ depends:
   - bluefin/xdg-terminal-exec.bst
 
   # Include things missing from the gnomeos base image
-  - gnome-build-meta.bst:core-deps/fwupd.bst
-
   - freedesktop-sdk.bst:components/buildstream2.bst
   - freedesktop-sdk.bst:components/containers-common.bst
   - freedesktop-sdk.bst:components/debuginfod.bst
@@ -48,3 +46,4 @@ depends:
   - bluefin/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
+  - bluefin/saturn.bst
