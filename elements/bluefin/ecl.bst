@@ -18,7 +18,7 @@ variables:
   conf-local: "--with-gmp=/usr"
 
 environment:
-  CFLAGS: "-std=c99 -O2"
+  CFLAGS: "-std=gnu99 -O2"
 
 sources:
   - kind: git_repo
