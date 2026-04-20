@@ -58,20 +58,22 @@ sources:
     directory: global-vars
     ref: c749f32c9b606a1457daa47d59630708ac0c266e
 
-  - kind: git_repo
-    url: common_lisp_net:iterate/iterate.git
+  # iterate and alexandria are on gitlab.common-lisp.net whose git protocol
+  # is incompatible with BST's dulwich version. Use GitLab tarball archives instead.
+  - kind: tar
+    url: https://gitlab.common-lisp.net/iterate/iterate/-/archive/d27d7ff4821b9d8b011afaaa866d7993942430f4/iterate-d27d7ff4821b9d8b011afaaa866d7993942430f4.tar.gz
+    ref: 83f214fbb0688040c5b869854deacef39a42def8a0e66690464b222dbfda7e00
     directory: iterate
-    ref: d27d7ff4821b9d8b011afaaa866d7993942430f4
 
   - kind: git_repo
     url: github:cl-babel/babel.git
     directory: babel
     ref: 4eaf3f228be4f6860ccc0b0fbb4c1781a1ee6597
 
-  - kind: git_repo
-    url: common_lisp_net:alexandria/alexandria.git
+  - kind: tar
+    url: https://gitlab.common-lisp.net/alexandria/alexandria/-/archive/390a096b4e1f9f85878ac313908c1c2ab2223ab6/alexandria-390a096b4e1f9f85878ac313908c1c2ab2223ab6.tar.gz
+    ref: 09a27388470cf98f3749cb9909b27dc2d3949fccefdf16bbfbca304a981dbda6
     directory: alexandria
-    ref: 390a096b4e1f9f85878ac313908c1c2ab2223ab6
 
   - kind: git_repo
     url: github:trivial-features/trivial-features.git
