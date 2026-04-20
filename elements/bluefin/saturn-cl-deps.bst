@@ -9,6 +9,7 @@ build-depends:
   - bluefin/ecl.bst
   - gnome-build-meta.bst:sdk/gtk.bst          # headers needed for CL GTK4 bindings
   - freedesktop-sdk.bst:components/pkg-config.bst  # build-cl-deps.lsp calls pkg-config --libs gtk4
+  - freedesktop-sdk.bst:components/gcc.bst    # ECL spawns gcc to compile Lisp→C intermediates
 
 depends:
   - bluefin/ecl.bst  # CL static archives link against ECL at runtime
