@@ -40,6 +40,10 @@ jobs:
             branch: auto/track-common
             title: "chore(deps): update common"
           - group: auto-merge
+            element: bluefin/saturn.bst
+            branch: auto/track-saturn
+            title: "chore(deps): update saturn"
+          - group: auto-merge
             element: bluefin/jetbrains-mono.bst
             branch: auto/track-jetbrains-mono
             title: "chore(deps): update jetbrains-mono"
