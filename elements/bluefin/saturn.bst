@@ -12,6 +12,7 @@ kind: meson
 build-depends:
   - freedesktop-sdk.bst:public-stacks/buildsystem-meson.bst
   - freedesktop-sdk.bst:components/pkg-config.bst
+  - freedesktop-sdk.bst:components/desktop-file-utils.bst
   - gnome-build-meta.bst:sdk/blueprint-compiler.bst
   - gnome-build-meta.bst:sdk/gtksourceview.bst
   - bluefin/ecl.bst
