@@ -4,11 +4,11 @@ sources:
 - kind: tar
   (?):
   - arch == "x86_64":
-      url: github_files:charmbracelet/glow/releases/download/v2.1.1/glow_2.1.1_Linux_x86_64.tar.gz
-      ref: 59106b08be69b2a0bda1178327bbb7accd584e7c113ba3d2f5ef6e48ff3ac27f
+      url: github_files:charmbracelet/glow/releases/download/v2.1.2/glow_2.1.2_Linux_x86_64.tar.gz
+      ref: 6063d4f2af8a82a5f4bba0831e165de9381660aa8b41df4816d0106a265b07d5
   - arch == "aarch64":
-      url: github_files:charmbracelet/glow/releases/download/v2.1.1/glow_2.1.1_Linux_arm64.tar.gz
-      ref: ab12a703cc6efd06caf24860344a2e8bc2518055fdd986f98eb761c47917ef3d
+      url: github_files:charmbracelet/glow/releases/download/v2.1.2/glow_2.1.2_Linux_arm64.tar.gz
+      ref: cf63abebcb50b72909db965d78290e7cecbf17a900e84705dc84addbb6952099
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
