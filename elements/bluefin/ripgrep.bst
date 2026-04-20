@@ -151,7 +151,7 @@ sources:
       sha: 5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c
     - kind: registry
       name: regex-syntax
-      version: 0.8.5
+      version: 0.8.8
       sha: 7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58
     - kind: registry
       name: ryu
