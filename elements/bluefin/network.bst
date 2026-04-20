@@ -4,6 +4,10 @@ kind: manual
 build-depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 
+variables:
+  # No external sources — nothing for the license stripper to scan.
+  install-extra: ""
+
 config:
   install-commands:
   - |
