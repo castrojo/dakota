@@ -13,5 +13,5 @@ custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybin
 
 [org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn]
 name='Saturn'
-command='saturn'
+command='/usr/bin/saturn'
 binding='<Super>space'
