@@ -3,13 +3,17 @@
 # Binds Super+Space to launch Saturn.
 # Clears the default GNOME switch-input-source binding (also Super+Space)
 # so there is no conflict.
+#
+# Must include ALL custom keybindings in the list — dconf uses the last
+# writer wins per key, and this file (10-*) comes after 06-* and 02-*.
+# Omitting entries here would unregister them from GNOME.
 
 [org/gnome/desktop/wm/keybindings]
 switch-input-source=@as []
 switch-input-source-backward=@as []
 
 [org/gnome/settings-daemon/plugins/media-keys]
-custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn/']
+custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom2/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom3/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom4/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom5/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom6/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn/']
 
 [org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/saturn]
 name='Saturn'
