@@ -603,7 +603,8 @@ registry-status:
     curl -sf "http://localhost:{{registry_port}}/v2/_catalog" 2>/dev/null \
         | python3 -m json.tool 2>/dev/null || echo "(registry not reachable)"
 
-# Chunkify, export via OCI dir (bypasses zstd:chunked blob cache), push plain zstd to local registry.
+# Export rechunked image via OCI dir (bypasses zstd:chunked blob cache), push plain zstd to local registry.
+# Assumes just build was called first (just export → just chunkify already produced the rechunked image).
 # Plain zstd required: bootc composefs-oci uses a plain ZstdDecoder and cannot consume zstd:chunked blobs.
 # oci-dir export produces raw uncompressed tar streams; skopeo compresses fresh (no cache reuse).
 [group('dev')]
@@ -625,8 +626,9 @@ publish:
         exit 1
     fi
 
-    # Chunkify: splits into 120 content-addressed layers with xattrs on /var/tmp overlay
-    just chunkify "{{image_name}}:{{image_tag}}"
+    # Note: just export already calls just chunkify; do NOT re-chunkify here.
+    # Re-running chunkah is non-deterministic: each run produces different blob
+    # digests, so the NUC would pull a different digest than just build produced.
 
     # Export to OCI dir — uncompressed, bypasses zstd:chunked blob cache in containers-storage
     OCI_DIR=$(mktemp -d -p /var/tmp dakota-publish-XXXX)
@@ -780,7 +782,7 @@ validate-nuc nuc_ip="192.168.1.247":
     # Show the digest from the registry (what the NUC pulls) so the human can cross-check
     echo "=== expected digest (ghost registry) ==="
     skopeo inspect --tls-verify=false docker://localhost:{{registry_port}}/{{image_name}}:{{image_tag}} 2>/dev/null \
-        | grep -oE '"Digest":"[^"]+"' | head -1 || echo "(skopeo inspect failed)"
+        | grep -oEm 1 '"Digest":\s*"[^"]+"' || echo "(registry inspect failed)"
 
     ssh jorge@${NUC} "
         echo '=== bootc status ==='
