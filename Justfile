@@ -777,12 +777,10 @@ validate-nuc nuc_ip="192.168.1.247":
     NUC="{{nuc_ip}}"
     echo "==> Validating NUC at ${NUC}..."
 
-    # Show the digest we pushed from ghost so the human can cross-check
-    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    # Show the digest from the registry (what the NUC pulls) so the human can cross-check
     echo "=== expected digest (ghost registry) ==="
-    $SUDO_CMD podman image inspect "{{image_name}}:{{image_tag}}" \
-        --format '{{{{.RepoDigests}}}}' 2>/dev/null \
-        | tr ' ' '\n' | grep -v '^$' | head -3 || echo "(image not found locally)"
+    skopeo inspect --tls-verify=false docker://localhost:{{registry_port}}/{{image_name}}:{{image_tag}} 2>/dev/null \
+        | grep -oE '"Digest":"[^"]+"' | head -1 || echo "(skopeo inspect failed)"
 
     ssh jorge@${NUC} "
         echo '=== bootc status ==='
