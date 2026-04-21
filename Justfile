@@ -516,12 +516,13 @@ chunkify image_ref:
     # Run chunkah against the overlay (bind-mounted read-only).
     # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
+    # Image pinned from quay.io/coreos/chunkah:latest as of 2026-04-21.
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
         -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/coreos/chunkah:latest build --max-layers 120 --prune /sysroot/ \
+        quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070 build --max-layers 120 --prune /sysroot/ \
         --label ostree.commit- --label ostree.final-diffid- \
         | $SUDO_CMD podman load)
 
