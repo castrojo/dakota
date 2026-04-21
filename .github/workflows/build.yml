@@ -255,7 +255,11 @@ jobs:
         run: |
           for tag in latest "${{ github.sha }}"; do
             for i in 1 2 3; do
-              sudo podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
+              # Plain zstd required: bootc composefs-oci cannot consume zstd:chunked blobs.
+              # After chunkah rechunking, blobs are fresh uncompressed — explicit flag
+              # prevents GHCR from negotiating zstd:chunked regardless of podman defaults.
+              sudo podman push --compression-format=zstd \
+                "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
               echo "Push attempt $i failed for tag ${tag}, retrying..."
               sleep 5
             done
@@ -440,7 +444,9 @@ jobs:
         run: |
           for tag in aarch64 "aarch64-${{ github.sha }}"; do
             for i in 1 2 3; do
-              sudo podman push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
+              # Plain zstd required — see x86_64 push step comment above.
+              sudo podman push --compression-format=zstd \
+                "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
               echo "Push attempt $i failed for tag ${tag}, retrying..."
               sleep 5
             done

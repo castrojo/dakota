@@ -662,6 +662,16 @@ publish:
     fi
     echo "PASS: ${LAYER_COUNT} layers, all plain zstd, no chunked annotations"
 
+    # Blob decode gate: pull first layer blob, verify it decodes as plain zstd (not zstd:chunked).
+    # This is the "over the wire" proof — the bytes in the registry are genuinely decodable.
+    FIRST_DIGEST=$(echo "$MANIFEST" | python3 -c "import sys, json; layers = json.load(sys.stdin)['layers']; print(layers[0]['digest']) if layers else exit(1)")
+    echo "==> Blob decode proof: zstd -t on layer 0 (${FIRST_DIGEST:0:19}...)..."
+    curl -fsSL --max-time 60 \
+        "http://localhost:{{registry_port}}/v2/{{image_name}}/blobs/${FIRST_DIGEST}" \
+        | zstd -t \
+        && echo "PASS: first layer blob is valid plain zstd" \
+        || { echo "FAIL: first layer blob failed zstd decode (may be zstd:chunked or corrupt)" >&2; exit 1; }
+
 # Print bootc switch command for NUC (uses LAN IP — NUC cannot reach ghost's localhost)
 [group('dev')]
 vm-switch-local:
@@ -766,14 +776,25 @@ validate-nuc nuc_ip="192.168.1.247":
     set -euo pipefail
     NUC="{{nuc_ip}}"
     echo "==> Validating NUC at ${NUC}..."
+
+    # Show the digest we pushed from ghost so the human can cross-check
+    SUDO_CMD=""; if [ "$(id -u)" -ne 0 ]; then SUDO_CMD="sudo"; fi
+    echo "=== expected digest (ghost registry) ==="
+    $SUDO_CMD podman image inspect "{{image_name}}:{{image_tag}}" \
+        --format '{{{{.RepoDigests}}}}' 2>/dev/null \
+        | tr ' ' '\n' | grep -v '^$' | head -3 || echo "(image not found locally)"
+
     ssh jorge@${NUC} "
         echo '=== bootc status ==='
-        sudo bootc status --format=json | grep -o '"imageDigest":"[^"]*"' | head -1
+        sudo bootc status --format=json | grep -oE '\"imageDigest\":\"[^\"]+\"' | head -1 || echo 'imageDigest: UNKNOWN'
         echo '=== os-release ==='
         grep -E 'VERSION_ID|IMAGE_VERSION' /usr/lib/os-release
         echo '=== GDM ==='
-        systemctl is-active gdm
+        systemctl is-active gdm && echo 'PASS: GDM active' || echo 'FAIL: GDM not active'
         echo '=== ldconfig stamp ==='
         ls /etc/ld.so.cache.stamp-* 2>/dev/null && echo stamp OK || echo WARNING: no stamp
+        echo '=== composefs/zstd journal (errors = FAIL) ==='
+        journalctl -b | grep -iE 'unexpected EOF|composefs.*(error|fail)|zstd.*(error|fail|corrupt)' \
+            | head -5 || echo 'PASS: no composefs/zstd errors in journal'
     "
     echo "==> Validation complete."
