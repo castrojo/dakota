@@ -245,7 +245,7 @@ jobs:
           git checkout -b "$BRANCH"
           git add files/filemap.json files/fakecap-manifest.tsv
           git commit -m "chore: regenerate chunkah filemap and fakecap manifest"
-          git push origin "$BRANCH"
+          git push origin "$BRANCH" --force
           cat > /tmp/pr-body.md << 'PRBODY'
           Automated monthly refresh of the chunkah component filemap.
 
@@ -263,4 +263,4 @@ jobs:
             --title "chore: regenerate chunkah filemap and fakecap manifest" \
             --body-file /tmp/pr-body.md \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH" || echo "PR already exists for $BRANCH"
