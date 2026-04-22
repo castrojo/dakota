@@ -112,7 +112,7 @@ export:
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
     # Step: Chunkify (reorganize layers)
-    # just chunkify "{{image_name}}:{{image_tag}}"
+    just chunkify "{{image_name}}:{{image_tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -481,8 +481,7 @@ chunkify image_ref:
         gcc -O2 -o "$FAKECAP_RESTORE" "{{justfile_directory()}}/files/fakecap/fakecap-restore.c"
     fi
 
-    echo "==> Generating component filemap..."
-    python3 scripts/gen-filemap.py
+
 
     # Mount the image as a writable overlay so we can physically set
     # user.component xattrs.  chunkah uses rustix raw syscalls for xattr
@@ -497,7 +496,7 @@ chunkify image_ref:
     }
     trap cleanup EXIT
 
-    UPPER=$(mktemp -d); WORK=$(mktemp -d); MERGED=$(mktemp -d)
+    UPPER=$(mktemp -d -p /var/tmp); WORK=$(mktemp -d -p /var/tmp); MERGED=$(mktemp -d -p /var/tmp)
     $SUDO_CMD chmod 755 "$UPPER" "$WORK" "$MERGED"
     $SUDO_CMD mount -t overlay overlay \
         -o "lowerdir=${LOWER},upperdir=${UPPER},workdir=${WORK}" \
@@ -507,13 +506,16 @@ chunkify image_ref:
     $SUDO_CMD "$FAKECAP_RESTORE" files/fakecap-manifest.tsv "$MERGED"
 
     # Run chunkah against the overlay (bind-mounted read-only).
-    # --max-layers 128 gives finer-grained content-based splitting;
+    # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
+    # Image pinned from quay.io/coreos/chunkah:latest as of 2026-04-21.
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
+        -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/coreos/chunkah:latest build --max-layers 128 \
+        quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070 build --max-layers 120 --prune /sysroot/ \
+        --label ostree.commit- --label ostree.final-diffid- \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
