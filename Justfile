@@ -515,14 +515,15 @@ chunkify image_ref:
         -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
         quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070 build --max-layers 120 --prune /sysroot/ \
-        --label ostree.commit- --label ostree.final-diffid- \
+        --label ostree.commit- --label ostree.final-diffid- --tag "{{image_ref}}" \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
 
     # Parse the loaded image reference
     NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
-              echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
+              echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*' || \
+              true)
 
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."
