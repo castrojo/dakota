@@ -262,6 +262,5 @@ jobs:
           gh pr create \
             --title "chore: regenerate chunkah filemap and fakecap manifest" \
             --body-file /tmp/pr-body.md \
-            --label "maintenance" \
             --base main \
             --head "$BRANCH"
