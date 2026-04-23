@@ -24,6 +24,26 @@ BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
 
 ## ⚠️ Hard rules (learned from real mistakes)
 
+### 0. PR and push discipline — repeated violation
+
+This repo is `castrojo/dakota` (fork). Upstream is `projectbluefin/dakota`.
+
+**Agents NEVER open PRs to `projectbluefin/dakota`.** The sequence is always:
+1. Branch → commit → push to `castrojo/dakota`
+2. Local or CI verification passes
+3. **User confirms** verification passed
+4. Provide a compare URL for the user to open upstream manually — never `gh pr create --repo projectbluefin/dakota`
+
+**When user says "open a PR" or "give me a PR link":** create or push to `castrojo/dakota` and output the compare URL. Do not submit to upstream.
+
+**Remote identity check before every push:**
+```bash
+git remote -v  # confirm which remote is the fork (castrojo) vs upstream (projectbluefin)
+```
+On ghost, `origin` = `projectbluefin/dakota` (upstream). Push to the `castrojo` remote, not `origin`.
+
+**Issues** — file only in `castrojo/dakota`. Never `projectbluefin/dakota`.
+
 ### 1. Always branch from upstream/main
 
 ```bash
