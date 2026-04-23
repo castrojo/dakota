@@ -54,7 +54,7 @@
         "/^Justfile$/"
       ],
       "matchStrings": [
-        "CHUNKAH_REF=\"(?<depName>quay\\.io/coreos/chunkah)@sha256:(?<currentDigest>[a-f0-9]{64})\""
+        "CHUNKAH_REF=\"(?<depName>quay\\.io/coreos/chunkah)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker",
       "currentValueTemplate": "latest"
