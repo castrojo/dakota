@@ -1,0 +1,3 @@
+# Hide the internal composefs metadata loop from UDisks clients such as Nautilus.
+# Keep the match narrow so user-created loop devices remain visible.
+SUBSYSTEM=="block", ACTION=="add|change|move|bind", KERNEL=="loop*", ENV{ID_FS_TYPE}=="erofs", ATTR{loop/backing_file}=="/sysroot/composefs/objects/*", ENV{UDISKS_IGNORE}="1"

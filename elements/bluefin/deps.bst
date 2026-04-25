@@ -19,6 +19,7 @@ depends:
   - bluefin/fzf.bst
 
   - bluefin/common.bst
+  - bluefin/composefs-loop-udisks-ignore.bst
   - bluefin/wallpapers.bst
 
   - bluefin/jetbrains-mono.bst
