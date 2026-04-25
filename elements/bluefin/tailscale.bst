@@ -25,6 +25,8 @@ config:
     sed -e 's|/usr/sbin/tailscaled|/usr/bin/tailscaled|g' \
         -e '/^EnvironmentFile=/d' \
         systemd/tailscaled.service > tailscaled.service.patched
+    sed -i '/^\[Service\]/a Environment=FLAGS=' tailscaled.service.patched
+    sed -i '/^\[Service\]/a Environment=PORT=41641' tailscaled.service.patched
     install -Dm644 -t "%{install-root}%{indep-libdir}/systemd/system" tailscaled.service.patched
     mv "%{install-root}%{indep-libdir}/systemd/system/tailscaled.service.patched" \
        "%{install-root}%{indep-libdir}/systemd/system/tailscaled.service"

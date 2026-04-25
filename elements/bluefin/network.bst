@@ -4,6 +4,9 @@ kind: manual
 build-depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 
+variables:
+  strip-binaries: ""
+
 config:
   install-commands:
   - |
@@ -19,5 +22,3 @@ config:
     127.0.0.1   localhost
     ::1         localhost
     EOF
-
-  - "%{install-extra}"
