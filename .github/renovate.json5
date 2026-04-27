@@ -11,7 +11,7 @@
   "platformAutomerge": true,
 
   // Don't rebase PRs when main changes -- reduces churn
-  "rebaseWhen": "never",
+  "rebaseWhen": "conflicted",
 
   "customManagers": [
     // ── bst2 container image in CI workflows and Justfile ──
@@ -58,21 +58,6 @@
       ],
       "datasourceTemplate": "docker",
       "currentValueTemplate": "latest"
-    },
-
-    // ── Nerd Fonts GitHub release tarball ──
-    // Matches: url: github_files:ryanoasis/nerd-fonts/releases/download/v<version>/JetBrainsMono.tar.xz
-    //          ref: <sha256>
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/elements/bluefin/jetbrains-mono-nerd-font\\.bst$/"
-      ],
-      "matchStrings": [
-        "url:\\s*github_files:(?<depName>ryanoasis/nerd-fonts)/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/JetBrainsMono\\.tar\\.xz\\n\\s+ref:\\s*(?<currentDigest>[a-f0-9]{64})"
-      ],
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ],
 

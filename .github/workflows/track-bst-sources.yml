@@ -21,7 +21,7 @@ permissions:
   pull-requests: write
 
 env:
-  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1
+  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:02bfebd4a9f9924ec7a67ba01623331e30e9348f
 
 jobs:
   track:
@@ -131,6 +131,15 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check bst2 image pin consistency
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          just_sha="$(grep -oE 'bst2:[a-f0-9]{40}' Justfile | cut -d: -f2)"
+          track_sha="${BST2_IMAGE##*:}"
+          [[ -n "$just_sha" ]] || { echo "ERROR: could not find bst2 SHA in Justfile"; exit 1; }
+          [[ "$just_sha" == "$track_sha" ]] || { echo "ERROR: bst2 pin drift — Justfile: $just_sha  BST2_IMAGE env: $track_sha"; exit 1; }
+          echo "OK: bst2 pins consistent: $just_sha"
 
       - name: Pull BuildStream container image
         if: steps.gate.outputs.run == 'true'
