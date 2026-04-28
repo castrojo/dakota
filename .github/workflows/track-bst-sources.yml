@@ -21,7 +21,7 @@ permissions:
   pull-requests: write
 
 env:
-  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:02bfebd4a9f9924ec7a67ba01623331e30e9348f
+  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d
 
 jobs:
   track:
