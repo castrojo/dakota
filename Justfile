@@ -10,7 +10,7 @@ export base_dir := env("BUILD_BASE_DIR", ".")
 export filesystem := env("BUILD_FILESYSTEM", "btrfs")
 
 # Same bst2 container image CI uses -- pinned by SHA for reproducibility
-export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:02bfebd4a9f9924ec7a67ba01623331e30e9348f")
+export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d")
 
 # VM settings
 export vm_ram := env("VM_RAM", "8192")
