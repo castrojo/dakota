@@ -45,7 +45,7 @@ sources:
     ref: 89a10b4d697f03eb32ade3c373c4fd69800a841a
 
   - kind: git_repo
-    url: github:pcostanza/closer-mop.git
+    url: codeberg:pcostanza/closer-mop.git
     directory: closer-mop
     ref: c6b1f2db0d77aea961e871f268b6fdcdc90c7510
 
