@@ -107,10 +107,20 @@ jobs:
           cachedir: /root/.cache/buildstream
           logdir: /src/logs
 
+          BSTCONF
+
+          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
           build:
             retry-failed: True
-
-          BSTCONF
+            max-jobs: 32
+          BSTCONFPUSH
+          else
+            cat >> buildstream-ci.conf <<'BSTCONFNOPUSH'
+          build:
+            retry-failed: True
+          BSTCONFNOPUSH
+          fi
 
           if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
             cat >> buildstream-ci.conf <<'BSTCONFPUSH'
