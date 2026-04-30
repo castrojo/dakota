@@ -7,5 +7,5 @@ build-depends:
 config:
   exclude:
     - debug
-    - extra
+    - doc
     - static-blocklist

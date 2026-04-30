@@ -44,13 +44,37 @@ DEFAULT_TARGET = "oci/layers/bluefin.bst"
 
 # Heuristic update-cadence hints keyed on element-name substrings.
 # First match wins; elements not matching any hint get "monthly".
+# These feed chunkah's stability tier classification — components with
+# similar update cadences are packed together, improving layer reuse.
 INTERVAL_HINTS: list[tuple[str, str]] = [
+    # Fast-changing: bluefin-owned packages update weekly
     ("bluefin/",            "weekly"),
+    # GNOME core updates frequently during development cycles
     ("gnome/gnome-shell",   "weekly"),
     ("gnome/mutter",        "weekly"),
     ("gnome/gdm",           "weekly"),
     ("gnome/nautilus",      "weekly"),
     ("gnome/",              "monthly"),
+    # Kernel, Mesa, firmware update biweekly in freedesktop-sdk
+    ("components/linux.bst",         "biweekly"),
+    ("components/linux-firmware",    "biweekly"),
+    ("extensions/mesa/mesa.bst",     "biweekly"),
+    ("gnomeos/initramfs/",           "biweekly"),
+    # Toolchain/bootstrap rarely changes — quarterly at most
+    ("components/rust-stage1",       "quarterly"),
+    ("components/rust.bst",          "quarterly"),
+    ("bootstrap/base-sdk/",          "quarterly"),
+    ("bootstrap/gcc",                "quarterly"),
+    ("bootstrap/glibc",              "quarterly"),
+    ("bootstrap/go",                 "quarterly"),
+    ("components/go.bst",            "quarterly"),
+    ("components/llvm",              "quarterly"),
+    ("components/gcc",               "quarterly"),
+    # Large stable data sets
+    ("core/gnome-user-docs",         "quarterly"),
+    ("components/foomatic-db",       "quarterly"),
+    ("components/locales",           "quarterly"),
+    # freedesktop-sdk base is monthly by default
     ("freedesktop-sdk",     "monthly"),
 ]
 DEFAULT_INTERVAL = "monthly"
