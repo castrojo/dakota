@@ -10,6 +10,9 @@ sources:
   path: bluefin-branding
   ref: f5213ca61615bb79a8315fc4c5378a80ca93922e
 
+build-depends:
+- gnome-build-meta.bst:gnomeos-deps/just.bst
+
 depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 - freedesktop-sdk.bst:components/sed.bst
@@ -38,6 +41,15 @@ config:
     cp -r system_files/bluefin/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r system_files/shared/etc/./ "%{install-root}%{sysconfdir}/"
     cp -r bluefin-branding/system_files/etc/./ "%{install-root}%{sysconfdir}/"
+
+    # Generate ujust completions to match the upstream common image.
+    install -d \
+      "%{install-root}%{datadir}/bash-completion/completions" \
+      "%{install-root}%{datadir}/zsh/site-functions" \
+      "%{install-root}%{datadir}/fish/vendor_completions.d"
+    just --completions bash | sed -E 's/([\(_" ])just/\1ujust/g' > "%{install-root}%{datadir}/bash-completion/completions/ujust"
+    just --completions zsh | sed -E 's/([\(_" ])just/\1ujust/g' > "%{install-root}%{datadir}/zsh/site-functions/_ujust"
+    just --completions fish | sed -E 's/([\(_" ])just/\1ujust/g' > "%{install-root}%{datadir}/fish/vendor_completions.d/ujust.fish"
 
     # Map Bluefin icons to GNOME OS expected names
     # About dialog (gnome-control-center reads LOGO=img-logo-icon from os-release,
