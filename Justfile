@@ -932,3 +932,53 @@ register-tracking element group:
     echo "            element: ${REL}"
     echo "            branch: ${BRANCH}"
     echo "            title: \"chore(deps): update ${NAME}\""
+
+# Infrastructure preflight: checks disk, NUC reachability, and registry before a build.
+# Exits non-zero if any check fails — run before 'just build' on ghost.
+# Usage: just preflight
+[group('dev')]
+preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PASS=true
+
+    echo "==> Dakota preflight checks"
+    echo ""
+
+    # 1. Disk: BST CAS lives on /, warn at 80%, hard-fail at 90%
+    DISK_PCT=$(df / --output=pcent | tail -1 | tr -d '% ')
+    if [ "$DISK_PCT" -ge 90 ]; then
+        echo "✗ DISK: ${DISK_PCT}% used — CRITICAL: free space before building (bst cas clean-cache)" >&2
+        PASS=false
+    elif [ "$DISK_PCT" -ge 80 ]; then
+        echo "⚠ DISK: ${DISK_PCT}% used — WARNING: consider running 'bst cas clean-cache' soon"
+    else
+        echo "✓ DISK: ${DISK_PCT}% used"
+    fi
+
+    # 2. NUC reachability
+    if ping -c 1 -W 2 192.168.1.247 >/dev/null 2>&1; then
+        echo "✓ NUC:  192.168.1.247 reachable"
+    else
+        echo "⚠ NUC:  192.168.1.247 not responding — may be asleep (not a build failure)"
+    fi
+
+    # 3. Zot registry
+    if podman inspect egg-registry &>/dev/null 2>&1; then
+        REG_STATE=$(podman inspect egg-registry --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [ "$REG_STATE" = "running" ]; then
+            echo "✓ REG:  egg-registry running"
+        else
+            echo "⚠ REG:  egg-registry exists but state=${REG_STATE} — run 'just registry-start'"
+        fi
+    else
+        echo "⚠ REG:  egg-registry not found — run 'just registry-start' before publishing"
+    fi
+
+    echo ""
+    if [ "$PASS" = "true" ]; then
+        echo "==> All checks passed"
+    else
+        echo "==> Preflight FAILED — resolve errors above before building" >&2
+        exit 1
+    fi

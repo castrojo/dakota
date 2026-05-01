@@ -88,11 +88,34 @@ just build
 | `auto-merge` | App-level packages, shell extensions | Squash-merged automatically |
 | `manual-merge` | Junctions (freedesktop-sdk, gnome-build-meta), Rust elements (cargo2), bootc | Requires human review |
 
+## Pre-build checks
+
+Run before any full build:
+
+```bash
+just preflight   # disk (<80% required), NUC reachability, zot registry
+```
+
+Ghost's root filesystem runs the BST CAS. At 80%+ disk usage builds will slow; at 90%+ they may fail with cache write errors. If `just preflight` fails on disk:
+
+```bash
+just bst cas clean-cache   # prune unused CAS objects
+```
+
+### Chunkah stability warning
+
+Every chunkah invocation prints `WARN no stability data available, packing may be suboptimal`. This is expected — `--stability-reports` is not integrated. Layer ordering is suboptimal but functional. Do not treat this warning as a build failure.
+
+### NUC freshness
+
+The NUC boots images from ghost's local zot registry. After any ghost build + publish cycle, the NUC must run `sudo bootc upgrade` to pull the new image. An unupgraded NUC is stale — do not validate hardware against a stale image.
+
 ## Hard rules — never break these
 
 - **Never edit** `elements/freedesktop-sdk.bst` or `elements/gnome-build-meta.bst` without human review
 - **Never run** `just bst source track elements/freedesktop-sdk.bst` or `elements/gnome-build-meta.bst` autonomously
 - **Never open a PR** to `projectbluefin/dakota` without explicit permission from a human reviewer
+- **Always run** `just preflight` before `just build` on ghost
 - **Always run** `just validate <element>` before `just bst build`
 - **Always add** new elements to `deps.bst` (binary) or `gnome-shell-extensions.bst` (extensions)
 - **Do not** add a Renovate entry for any element already in the `track-tarballs` CI job — dual-tracking causes conflicting PRs
