@@ -1,13 +1,14 @@
-# NVIDIA proprietary driver: userspace + open kernel modules, both built
-# from the .run installer's bundled kernel-open/ tree (the path NVIDIA's
-# release engineering validates).
-#
-# Hardware: Turing+ only (GTX 16xx, RTX 20xx-50xx, datacenter A/H/L/B).
-# Pascal and earlier need the closed-source kernel module we don't ship.
-#
-# To bump version: change url, ref (sha256), filename, and nvidia-version
-# below. Latest at https://www.nvidia.com/en-us/drivers/unix/.
 kind: manual
+description: |
+  NVIDIA proprietary driver: userspace + open kernel modules, both built
+  from the .run installer's bundled kernel-open/ tree (the path NVIDIA's
+  release engineering validates).
+
+  Hardware: Turing+ only (GTX 16xx, RTX 20xx-50xx, datacenter A/H/L/B).
+  Pascal and earlier need the closed-source kernel module we don't ship.
+
+  To bump version: change url, ref (sha256), filename, and nvidia-version
+  below. Latest at https://www.nvidia.com/en-us/drivers/unix/.
 
 build-depends:
 - freedesktop-sdk.bst:bootstrap/coreutils.bst

@@ -1,6 +1,7 @@
-# Header-only library that defines NVIDIA's pluggable EGL platform API.
-# Build-dep for nvidia-egl-wayland.bst (consumes eglexternalplatform.pc).
 kind: meson
+description: |
+  Header-only library that defines NVIDIA's pluggable EGL platform API.
+  Build-dep for nvidia-egl-wayland.bst (consumes eglexternalplatform.pc).
 
 build-depends:
 - freedesktop-sdk.bst:components/meson.bst

@@ -49,7 +49,7 @@ jobs:
           - variant: nvidia
             element: oci/bluefin-nvidia.bst
             image_suffix: '-nvidia'
-            publish: false
+            publish: true
             continue: true
     continue-on-error: ${{ matrix.continue }}
     steps:

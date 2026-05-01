@@ -1,7 +1,8 @@
-# NVIDIA's EGL-Wayland external platform library (MIT). Provides direct
-# EGL/GBM Wayland support; without it GNOME Shell only talks to NVIDIA
-# via XWayland. Released independently from the driver itself.
 kind: meson
+description: |
+  NVIDIA's EGL-Wayland external platform library (MIT). Provides direct
+  EGL/GBM Wayland support; without it GNOME Shell only talks to NVIDIA
+  via XWayland. Released independently from the driver itself.
 
 build-depends:
 - freedesktop-sdk.bst:components/meson.bst
