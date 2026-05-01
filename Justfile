@@ -668,3 +668,267 @@ lint:
     $SUDO_CMD podman run --rm --privileged --pull=never \
         "{{image_name}}:{{image_tag}}" \
         bootc container lint
+
+# ── Agent / maintenance recipes ───────────────────────────────────────
+#
+# These recipes are the primary interface for automated agents (dakotaraptor)
+# performing routine dakota maintenance: adding packages, removing packages,
+# updating refs, and scaffolding new elements.
+#
+# Every recipe:
+#   - Fails fast with a clear error message
+#   - Prints exactly what it did and what to do next
+#   - Leaves a 'git diff' that reviewers can verify
+
+# Validate a single element resolves in the dependency graph (no build).
+# Run this before 'just bst build' to catch YAML and dependency errors early.
+[group('dev')]
+validate element:
+    just bst show {{element}}
+
+# Track a single element's upstream source and show the resulting diff.
+# Only works for elements with a track: field (git_repo sources).
+# For tarball elements use 'just track-tarball' instead.
+[group('dev')]
+track-one element:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Tracking {{element}}..."
+    just bst source track {{element}}
+    echo ""
+    echo "==> Changes:"
+    git diff {{element}} || true
+
+# Update a tarball element to a new version.
+# Replaces the version string in URLs then recomputes SHA256 via bst source track.
+# Usage: just track-tarball elements/bluefin/glow.bst 2.2.0
+[group('dev')]
+track-tarball element new_version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BST="{{element}}"
+    NEW="{{new_version}}"
+
+    if [ ! -f "$BST" ]; then
+        echo "ERROR: $BST not found" >&2; exit 1
+    fi
+
+    # Detect current version from URL patterns: /v0.1.2/, _0.1.2_, -0.1.2-
+    OLD=$(grep -oP '(?<=/v)\d+\.\d+[\d.]*(?=[/_-])' "$BST" | head -1 || \
+          grep -oP '(?<=_)\d+\.\d+[\d.]*(?=_)' "$BST" | head -1 || \
+          grep -oP '(?<=-)\d+\.\d+[\d.]*(?=-)' "$BST" | head -1 || true)
+
+    if [ -z "$OLD" ]; then
+        echo "ERROR: Could not detect current version in $BST" >&2
+        echo "       Check the URL pattern and update manually." >&2
+        exit 1
+    fi
+
+    echo "==> $BST: v$OLD -> v$NEW"
+    # Replace version in URL patterns (handles /v0.1.2/, _0.1.2_, -0.1.2-)
+    sed -i \
+        "s|/v${OLD}/|/v${NEW}/|g; \
+         s|_${OLD}_|_${NEW}_|g; \
+         s|-${OLD}-|-${NEW}-|g; \
+         s|/${OLD}/|/${NEW}/|g" \
+        "$BST"
+
+    echo "==> Recomputing SHA256 refs via bst source track..."
+    just bst source track "$BST"
+
+    echo ""
+    echo "==> Result:"
+    git diff "$BST"
+
+# Scaffold a new pre-built binary element from template.
+# Copies files/templates/binary.bst, substitutes name and repo, prints next steps.
+# Usage: just scaffold-binary fastfetch fastfetch-linux/fastfetch
+[group('dev')]
+scaffold-binary name repo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DEST="elements/bluefin/{{name}}.bst"
+    if [ -f "$DEST" ]; then
+        echo "ERROR: $DEST already exists — use 'just track-tarball' to update it" >&2; exit 1
+    fi
+    cp files/templates/binary.bst "$DEST"
+    sed -i \
+        "s|TEMPLATE_NAME|{{name}}|g; \
+         s|TEMPLATE_REPO|{{repo}}|g" \
+        "$DEST"
+    echo "==> Created $DEST"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Edit $DEST"
+    echo "       - Fix the URL filename pattern to match upstream release naming"
+    echo "       - Set the initial VERSION (e.g. 1.2.3)"
+    echo "       - Remove 'base-dir: \"\"' if the tarball wraps its contents in a subdir"
+    echo "  2. Run: just bst source track $DEST"
+    echo "  3. Add 'bluefin/{{name}}.bst' to elements/bluefin/deps.bst"
+    echo "  4. Run: just validate $DEST"
+    echo "  5. Run: just bst build $DEST"
+    echo "  6. Register tracking: just register-tracking elements/bluefin/{{name}}.bst auto-merge"
+
+# Scaffold a new GNOME Shell extension element from template.
+# Usage: just scaffold-gnome-ext blur-my-shell aunetx/gnome-shell-extension-blur-my-shell
+[group('dev')]
+scaffold-gnome-ext name repo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DEST="elements/bluefin/shell-extensions/{{name}}.bst"
+    if [ -f "$DEST" ]; then
+        echo "ERROR: $DEST already exists" >&2; exit 1
+    fi
+    cp files/templates/gnome-ext.bst "$DEST"
+    sed -i \
+        "s|GITHUB_ORG/GITHUB_REPO|{{repo}}|g; \
+         s|TEMPLATE_NAME|{{name}}|g" \
+        "$DEST"
+    echo "==> Created $DEST"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Edit $DEST"
+    echo "       - Replace EXT_UUID with the actual extension UUID from metadata.json"
+    echo "       - Verify the track: pattern (v* for tagged releases, main for rolling)"
+    echo "  2. Run: just bst source track $DEST"
+    echo "  3. Add 'bluefin/shell-extensions/{{name}}.bst' to elements/bluefin/gnome-shell-extensions.bst"
+    echo "  4. Run: just validate $DEST"
+    echo "  5. Run: just bst build $DEST"
+    echo "  6. Register tracking: just register-tracking $DEST auto-merge"
+
+# Scaffold a new Rust/Cargo element from template.
+# Usage: just scaffold-rust sudo-rs memorysafety/sudo-rs
+[group('dev')]
+scaffold-rust name repo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DEST="elements/bluefin/{{name}}.bst"
+    if [ -f "$DEST" ]; then
+        echo "ERROR: $DEST already exists" >&2; exit 1
+    fi
+    ORG=$(echo "{{repo}}" | cut -d/ -f1)
+    REPO=$(echo "{{repo}}" | cut -d/ -f2)
+    cp files/templates/rust.bst "$DEST"
+    sed -i \
+        "s|GITHUB_ORG|${ORG}|g; \
+         s|GITHUB_REPO|${REPO}|g; \
+         s|TEMPLATE_NAME|{{name}}|g" \
+        "$DEST"
+    echo "==> Created $DEST"
+    echo ""
+    echo "IMPORTANT: cargo2 bootstrap required before 'bst source track' works."
+    echo ""
+    echo "Next steps:"
+    echo "  1. Clone upstream to generate initial cargo2 block:"
+    echo "       cd /tmp && git clone https://github.com/{{repo}} && cd ${REPO}"
+    echo "       python3 $(pwd)/files/scripts/generate_cargo_sources.py Cargo.lock"
+    echo "       # Paste output into the 'ref:' block in $DEST"
+    echo "  2. Edit $DEST — fix build-commands/install-commands for this binary"
+    echo "  3. Run: just bst source track $DEST"
+    echo "       (updates git ref AND regenerates cargo2 crate list automatically)"
+    echo "  4. Add 'bluefin/{{name}}.bst' to elements/bluefin/deps.bst"
+    echo "  5. Run: just validate $DEST"
+    echo "  6. Run: just bst build $DEST"
+    echo "  7. Register tracking: just register-tracking $DEST manual-merge"
+    echo "       (Rust elements always go in manual-merge — cargo2 changes need review)"
+
+# Guided package removal: prints a preflight checklist before any files are deleted.
+# Review the output, then delete files manually and run 'just validate oci/bluefin.bst'.
+# Usage: just remove-package glow
+[group('dev')]
+remove-package name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Dakota removal preflight: {{name}}"
+    echo "    Review each section. STOP if reverse deps or alias conflicts are found."
+    echo ""
+
+    echo "━━━ [1/6] Element files ━━━"
+    FOUND=$(ls \
+        elements/bluefin/{{name}}.bst \
+        elements/bluefin/{{name}}-*.bst \
+        elements/bluefin/shell-extensions/{{name}}.bst \
+        elements/core/{{name}}.bst \
+        2>/dev/null || true)
+    if [ -n "$FOUND" ]; then
+        echo "$FOUND"
+    else
+        echo "  (none — check spelling)"
+    fi
+
+    echo ""
+    echo "━━━ [2/6] Reverse dependencies ━━━"
+    REVDEPS=$(grep -rl "{{name}}.bst" elements/ 2>/dev/null | grep -v "^elements/bluefin/{{name}}" || true)
+    if [ -n "$REVDEPS" ]; then
+        echo "$REVDEPS"
+        echo "  ⚠ WARNING: resolve these before deleting"
+    else
+        echo "  (none — safe to proceed)"
+    fi
+
+    echo ""
+    echo "━━━ [3/6] Tracking workflow refs ━━━"
+    grep -n "{{name}}" .github/workflows/track-bst-sources.yml 2>/dev/null || echo "  (none)"
+
+    echo ""
+    echo "━━━ [4/6] Renovate refs ━━━"
+    grep -n "{{name}}" .github/renovate.json5 2>/dev/null || echo "  (none)"
+
+    echo ""
+    echo "━━━ [5/6] Static files ━━━"
+    grep -rn "{{name}}" files/ 2>/dev/null || echo "  (none)"
+    ls files/{{name}}/ 2>/dev/null || true
+
+    echo ""
+    echo "━━━ [6/6] deps.bst / gnome-shell-extensions.bst entries ━━━"
+    grep -n "{{name}}" \
+        elements/bluefin/deps.bst \
+        elements/bluefin/gnome-shell-extensions.bst \
+        2>/dev/null || echo "  (none)"
+
+    echo ""
+    echo "━━━ Commands to execute after review ━━━"
+    echo "  rm elements/bluefin/{{name}}.bst"
+    echo "  # Edit deps.bst / gnome-shell-extensions.bst (see [6] above)"
+    echo "  # Edit track-bst-sources.yml (see [3] above)"
+    echo "  # Edit renovate.json5 (see [4] above)"
+    echo "  just validate oci/bluefin.bst"
+    echo "  just build"
+
+# List everything that depends on an element.
+# Usage: just reverse-deps elements/bluefin/glow.bst
+[group('info')]
+reverse-deps element:
+    #!/usr/bin/env bash
+    NAME=$(basename "{{element}}" .bst)
+    RESULTS=$(grep -rl "${NAME}.bst" elements/ 2>/dev/null | grep -v "{{element}}" || true)
+    if [ -n "$RESULTS" ]; then
+        echo "$RESULTS"
+    else
+        echo "(no dependents found)"
+    fi
+
+# Print the CI tracking matrix snippet for a new element.
+# Paste the output into .github/workflows/track-bst-sources.yml under the given group.
+# Usage: just register-tracking elements/bluefin/glow.bst auto-merge
+[group('info')]
+register-tracking element group:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    NAME=$(basename "{{element}}" .bst)
+    REL=$(echo "{{element}}" | sed 's|^elements/||')
+    BRANCH="auto/track-${NAME}"
+
+    # Validate the element resolves before printing registration snippet
+    if ! just bst show "{{element}}" &>/dev/null; then
+        echo "ERROR: 'just validate {{element}}' failed — fix element before registering" >&2
+        exit 1
+    fi
+
+    echo "==> Add this block to .github/workflows/track-bst-sources.yml"
+    echo "    under the '# ── {{group}}' section:"
+    echo ""
+    echo "          - group: {{group}}"
+    echo "            element: ${REL}"
+    echo "            branch: ${BRANCH}"
+    echo "            title: \"chore(deps): update ${NAME}\""
