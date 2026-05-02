@@ -29,9 +29,6 @@ concurrency:
 jobs:
   build:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    permissions:
-      contents: read
-      packages: write
     # Variant matrix: the default Bluefin image and the NVIDIA variant build
     # in parallel. They share the BST artifact cache via cache.projectbluefin.io,
     # so whichever runs first warms the closure for the other. NVIDIA is
@@ -52,6 +49,8 @@ jobs:
             publish: true
             continue: true
     continue-on-error: ${{ matrix.continue }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -74,18 +73,6 @@ jobs:
       #       const fs = require('fs');
       #       const token = await core.getIDToken('cache.projectbluefin.io')
       #       fs.writeFileSync('bluefin.token', token, { mode: 0o600 });
-
-      - name: Mount BTRFS for podman storage
-        id: container-storage
-        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
-        continue-on-error: true
-        with:
-          target-dir: /var/lib/containers
-          mount-opts: compress-force=zstd:2
-          loopback-free: '1'
-
-      - name: Remove unwanted software
-        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # v10
 
       - name: Setup Just
         uses: taiki-e/install-action@just
@@ -221,42 +208,6 @@ jobs:
           just bst build ${{ matrix.element }}
         timeout-minutes: 420
 
-      # ── Export OCI image ──────────────────────────────────────────────
-      # Uses the Justfile's `export` recipe: checks out the OCI image
-      # layout from BuildStream, loads it into podman via skopeo, and
-      # applies the /usr/etc bootc fixup. Same logic as local builds.
-      # Creates image with local name (dakota:latest) to avoid registry
-      # lookups during validation.
-
-      - name: Export OCI image from BuildStream
-        id: export
-        env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
-          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
-          OCI_IMAGE_REVISION: ${{ github.sha }}
-          OCI_IMAGE_VERSION: latest
-        run: |
-          just export ${{ matrix.variant }}
-          echo "image_ref=${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}:latest" >> "$GITHUB_OUTPUT"
-
-      - name: Verify image loaded
-        run: sudo podman images
-
-      # ── Validation ────────────────────────────────────────────────────
-
-      - name: Validate with bootc container lint
-        env:
-          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}
-        run: |
-           just lint
-
-      # Delete jwt token just in case
-      # FIXME: Make the build with JWT work
-      # - name: Delete token
-      #   if: always()
-      #   run: rm -f bluefin.token
-
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
 
@@ -268,47 +219,6 @@ jobs:
           path: logs/
           retention-days: 7
           if-no-files-found: ignore
-
-      - name: Login to GHCR
-        if: >-
-          matrix.publish &&
-          (github.event_name == 'merge_group' ||
-           github.event_name == 'schedule' ||
-           github.event_name == 'workflow_dispatch')
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
-
-      - name: Tag image for GHCR
-        if: >-
-          matrix.publish &&
-          (github.event_name == 'merge_group' ||
-           github.event_name == 'schedule' ||
-           github.event_name == 'workflow_dispatch')
-        run: |
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}:latest"
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}:${{ github.sha }}"
-
-      - name: Push to GHCR
-        if: >-
-          matrix.publish &&
-          (github.event_name == 'merge_group' ||
-           github.event_name == 'schedule' ||
-           github.event_name == 'workflow_dispatch')
-        run: |
-          for tag in latest "${{ github.sha }}"; do
-            for i in 1 2 3; do
-              # Plain zstd required: bootc composefs-oci cannot consume zstd:chunked blobs.
-              # After chunkah rechunking, blobs are fresh uncompressed — explicit flag
-              # prevents GHCR from negotiating zstd:chunked regardless of podman defaults.
-              sudo podman push --compression-format=zstd \
-                "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}:${tag}" && break
-              echo "Push attempt $i failed for tag ${tag}, retrying..."
-              sleep 5
-            done
-          done
 
   # ── aarch64 native build ──────────────────────────────────────────────────
   # Mirrors the x86_64 build job. ARM failures do not fail the workflow or
