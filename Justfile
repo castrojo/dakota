@@ -32,6 +32,11 @@ bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
+    # Persist generated source plugin state (snakeoil secureboot keys from
+    # gnome-build-meta's generated.py plugin). Without this mount the keys
+    # regenerate on every container invocation, printing to stdout and
+    # breaking any tool (e.g. buildstream-sbom) that pipes bst show output.
+    mkdir -p "${HOME}/.config/buildstream-generate"
     # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
@@ -41,33 +46,67 @@ bst *ARGS:
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
         -w /src \
         "{{bst2_image}}" \
         bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
+#
+# Variant selects which top-level OCI element to build:
+#   all     → both default and nvidia, sequentially  (refs below)
+#   default → oci/bluefin.bst                        ({{image_name}}:{{image_tag}})
+#   nvidia  → oci/bluefin-nvidia.bst                 ({{image_name}}-nvidia:{{image_tag}})
+#
+# Usage:
+#   just build              # builds BOTH variants (default + nvidia)
+#   just build default      # only default bluefin variant
+#   just build nvidia       # only nvidia variant
+#
+# When variant=all we run the per-variant build recursively so each one
+# also runs its own export + chunkify, leaving two podman refs:
+# dakota:latest and dakota-nvidia:latest.
 [group('build')]
-build:
+build variant="all":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    echo "==> Building OCI image with BuildStream (inside bst2 container)..."
-    just bst build oci/bluefin.bst
+    if [ "{{variant}}" = "all" ]; then
+        just build default
+        just build nvidia
+        exit 0
+    fi
 
-    just export
+    case "{{variant}}" in
+        default) ELEMENT="oci/bluefin.bst" ;;
+        nvidia)  ELEMENT="oci/bluefin-nvidia.bst" ;;
+        *) echo "ERROR: unknown variant '{{variant}}' (expected: all | default | nvidia)" >&2; exit 1 ;;
+    esac
+
+    echo "==> Building $ELEMENT with BuildStream (inside bst2 container)..."
+    just bst build "$ELEMENT"
+
+    just export {{variant}}
 
 # ── Export ─────────────────────────────────────────────────────────────
 # Checkout the built OCI image from BuildStream and load it into podman.
-# Assumes `bst build oci/bluefin.bst` has already completed.
+# Assumes the matching `just bst build` has already completed.
 # Used by: `just build` (after building) and CI (as a separate step).
 #
 # Uses SUDO_CMD to handle root vs non-root: CI runs as root (no sudo),
 # local dev needs sudo for podman access to containers-storage.
 [group('build')]
-export:
+export variant="default":
     #!/usr/bin/env bash
     set -euo pipefail
+
+    case "{{variant}}" in
+        default) ELEMENT="oci/bluefin.bst";        FINAL_NAME="{{image_name}}" ;;
+        nvidia)  ELEMENT="oci/bluefin-nvidia.bst"; FINAL_NAME="{{image_name}}-nvidia" ;;
+        *) echo "ERROR: unknown variant '{{variant}}' (expected: default | nvidia)" >&2; exit 1 ;;
+    esac
+    FINAL_TAG="{{image_tag}}"
 
     # Use sudo unless already root (CI runners are root)
     SUDO_CMD=""
@@ -75,9 +114,9 @@ export:
         SUDO_CMD="sudo"
     fi
 
-    echo "==> Exporting OCI image..."
+    echo "==> Exporting OCI image ($ELEMENT → ${FINAL_NAME}:${FINAL_TAG})..."
     rm -rf .build-out
-    just bst artifact checkout oci/bluefin.bst --directory /src/.build-out
+    just bst artifact checkout "$ELEMENT" --directory /src/.build-out
 
     # Load the multi-layer OCI image and squash into a single layer.
     # BuildStream produces separate layers (platform + gnomeos + bluefin);
@@ -86,7 +125,7 @@ export:
     echo "==> Loading and squashing OCI image..."
     IMAGE_ID=$($SUDO_CMD podman pull -q oci:.build-out)
     rm -rf .build-out
-    
+
     # Build label arguments for dynamic OCI metadata
     LABEL_ARGS=""
     if [ -n "${OCI_IMAGE_CREATED}" ]; then
@@ -98,21 +137,21 @@ export:
     if [ -n "${OCI_IMAGE_VERSION}" ]; then
         LABEL_ARGS="${LABEL_ARGS} --label org.opencontainers.image.version=${OCI_IMAGE_VERSION}"
     fi
-    
+
     # Squash, inject build-date VERSION_ID, and apply dynamic labels.
     # BST has no string option type, so VERSION_ID is set to "0" in os-release.bst
     # and replaced here at export time — after the BST cache key is already fixed.
     DATE_TAG="$(date -u +%Y%m%d)"
     # shellcheck disable=SC2086
     printf 'FROM %s\nRUN sed -i "s/^VERSION_ID=.*/VERSION_ID=\\"%s\\"/" /usr/lib/os-release \\\n    && sed -i "s/^IMAGE_VERSION=.*/IMAGE_VERSION=\\"%s\\"/" /usr/lib/os-release\n' "$IMAGE_ID" "$DATE_TAG" "$DATE_TAG" \
-        | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all ${LABEL_ARGS} -t "{{image_name}}:{{image_tag}}" -f - .
+        | $SUDO_CMD podman build --pull=never --security-opt label=type:unconfined_t --squash-all ${LABEL_ARGS} -t "${FINAL_NAME}:${FINAL_TAG}" -f - .
     $SUDO_CMD podman rmi "$IMAGE_ID" || true
 
-    echo "==> Export complete. Image loaded as {{image_name}}:{{image_tag}}"
+    echo "==> Export complete. Image loaded as ${FINAL_NAME}:${FINAL_TAG}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
     # Step: Chunkify (reorganize layers)
-    just chunkify "{{image_name}}:{{image_tag}}"
+    just chunkify "${FINAL_NAME}:${FINAL_TAG}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -139,14 +178,23 @@ bootc *ARGS:
         "{{image_name}}:{{image_tag}}" bootc {{ARGS}}
 
 # ── Generate bootable disk image ─────────────────────────────────────
+# Variant selects which loaded image to install (default | nvidia).
+# Mirrors `just build` / `just export`'s tag scheme.
 [group('test')]
-generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
+generate-bootable-image variant="default" $base_dir=base_dir $filesystem=filesystem:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if ! sudo podman image exists "{{image_name}}:{{image_tag}}"; then
-        echo "ERROR: Image '{{image_name}}:{{image_tag}}' not found in podman." >&2
-        echo "Run 'just build' first to build and export the OCI image." >&2
+    case "{{variant}}" in
+        default) FINAL_NAME="{{image_name}}" ;;
+        nvidia)  FINAL_NAME="{{image_name}}-nvidia" ;;
+        *) echo "ERROR: unknown variant '{{variant}}' (expected: default | nvidia)" >&2; exit 1 ;;
+    esac
+
+    REF="${FINAL_NAME}:{{image_tag}}"
+    if ! sudo podman image exists "$REF"; then
+        echo "ERROR: Image '$REF' not found in podman." >&2
+        echo "Run 'just build {{variant}}' first to build and export the OCI image." >&2
         exit 1
     fi
 
@@ -155,8 +203,8 @@ generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
         fallocate -l 30G "${base_dir}/bootable.raw"
     fi
 
-    echo "==> Installing OS to disk image via bootc..."
-    just bootc install to-disk \
+    echo "==> Installing $REF to disk image via bootc..."
+    BUILD_IMAGE_NAME="$FINAL_NAME" just bootc install to-disk \
         --via-loopback /data/bootable.raw \
         --filesystem "${filesystem}" \
         --wipe \
@@ -171,7 +219,7 @@ generate-bootable-image $base_dir=base_dir $filesystem=filesystem:
 
     echo "==> Bootable disk image ready: ${base_dir}/bootable.raw"
     sync
-    
+
     # Remove stale qcow2 so boot-vm uses the fresh raw image
     rm -f "${base_dir}/bootable.qcow2"
 
@@ -426,7 +474,9 @@ show-me-the-future:
     echo ""
 
     # ── Steps ─────────────────────────────────────────────────────
-    run_step "Build OCI image" just build
+    # Pinned to the `default` variant so we don't double the wall time
+    # building the nvidia variant the user never boots in this flow.
+    run_step "Build OCI image" just build default
     echo ""
     run_step "Bootable disk" just generate-bootable-image
     echo ""
@@ -607,6 +657,129 @@ inspect: _ensure-bcvk
     fi
 
     $SUDO_CMD bcvk images list
+
+# ── SBOM ─────────────────────────────────────────────────────────────
+# Generate a BST-native SBOM (SPDX 2.3) using buildstream-sbom.
+# Reads directly from BST element metadata — captures all ~1100+ elements
+# including GNOME/GTK/systemd from junctions (unlike syft which can only
+# fingerprint binaries in the rootfs and misses source-built packages).
+# Does NOT require a pre-built image — just the BST project files.
+# Output: dakota.spdx.json in repo root.
+#
+# Local testing:
+#   just sbom                                # generate SBOM
+#   jq '.spdxVersion' dakota.spdx.json      # verify SPDX-2.3
+#   jq '.packages | length' dakota.spdx.json  # expect ~1100+
+#   jq -r '.packages[].name' dakota.spdx.json | grep -i "gnome\|gtk\|systemd"
+[group('test')]
+sbom:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Persist the snakeoil key cache so bst show runs silently (see bst recipe).
+    mkdir -p "${HOME}/.config/buildstream-generate"
+    GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    # Prime the generated source plugin cache (snakeoil secureboot keys).
+    # The gnome-build-meta generated.py plugin runs `make` on first use and
+    # caches the result. If the cache is cold, the make output pollutes stdout
+    # and breaks buildstream-sbom's bst show pipe. Priming here ensures the
+    # cache is warm before buildstream-sbom runs.
+    echo "==> Priming BST generated source cache..."
+    podman run --rm \
+        --privileged \
+        --device /dev/fuse \
+        --network=host \
+        -v "{{justfile_directory()}}:/src:rw" \
+        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
+        -w /src \
+        "{{bst2_image}}" \
+        bash -c 'bst --no-colors show --deps none --format "%{name}" oci/bluefin.bst' \
+        2>/dev/null || true
+
+    echo "==> Generating BST-native SBOM with buildstream-sbom..."
+    # Pinned to commit 0706fec3 (2026-04-01) — latest main, includes element
+    # names in SPDX output (issue #9 fix). Switch to a versioned PyPI release
+    # once the project publishes one.
+    podman run --rm \
+        --privileged \
+        --device /dev/fuse \
+        --network=host \
+        -v "{{justfile_directory()}}:/src:rw" \
+        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
+        -w /src \
+        "{{bst2_image}}" \
+        bash -c "
+            for attempt in 1 2 3; do
+                pip install --quiet \
+                    git+https://gitlab.com/BuildStream/buildstream-sbom.git@0706fec3bedf6f73bd9d2fed32c2aed585feef8d \
+                    && break
+                echo \"buildstream-sbom install failed (attempt \${attempt}/3); retrying in 5s...\"
+                [ \"\${attempt}\" -lt 3 ] && sleep 5
+            done
+            buildstream-sbom oci/bluefin.bst \
+                --spdx-name dakota \
+                --spdx-namespace https://github.com/projectbluefin/dakota/sbom/${GIT_SHA} \
+                --spdx-creator 'Tool: buildstream-sbom' \
+                --spdx-creator 'Organization: projectbluefin' \
+                --deps all \
+                --output /src/dakota.spdx.json
+        "
+    echo ""
+    echo "==> SBOM written to: $(pwd)/dakota.spdx.json"
+    du -sh dakota.spdx.json
+    echo ""
+    echo "==> Package count:"
+    jq '.packages | length' dakota.spdx.json
+
+# ── Verify supply-chain signatures ───────────────────────────────────
+# Verify cosign signature + SBOM referrer + SLSA attestation for a
+# pushed image. Requires: cosign, oras, gh CLI.
+# Usage: just verify                           (uses IMAGE_REGISTRY/IMAGE_NAME:latest)
+#        just verify ghcr.io/projectbluefin/dakota:latest
+[group('test')]
+verify image_ref="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    IMAGE="{{image_ref}}"
+    [ -z "$IMAGE" ] && IMAGE="ghcr.io/projectbluefin/dakota:latest"
+
+    echo "==> Verifying supply-chain security for: ${IMAGE}"
+    echo ""
+    STATUS=0
+
+    # 1. Cosign keyless signature
+    echo "── Cosign signature (keyless / Sigstore OIDC) ──"
+    if ! command -v cosign &>/dev/null; then
+        echo "SKIP: cosign not installed"
+    else
+        cosign verify \
+            --certificate-identity \
+                'https://github.com/projectbluefin/dakota/.github/workflows/publish.yml@refs/heads/main' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}" && echo "PASS: signature valid" || { echo "FAIL: signature check failed"; STATUS=1; }
+    fi
+    echo ""
+
+    # 2. SBOM referrer
+    echo "── SBOM OCI referrer ──"
+    if ! command -v oras &>/dev/null; then
+        echo "SKIP: oras not installed"
+    else
+        oras discover "${IMAGE}" && echo "PASS: referrers listed above" || { echo "FAIL: oras discover failed"; STATUS=1; }
+    fi
+    echo ""
+
+    # 3. SLSA attestation
+    echo "── SLSA build provenance (actions/attest) ──"
+    if ! command -v gh &>/dev/null; then
+        echo "SKIP: gh not installed"
+    else
+        gh attestation verify "oci://${IMAGE}" \
+            --repo projectbluefin/dakota && echo "PASS: attestation valid" || { echo "FAIL: attestation check failed"; STATUS=1; }
+    fi
+    exit "${STATUS}"
 
 # ── Lint ─────────────────────────────────────────────────────────────
 [group('test')]
