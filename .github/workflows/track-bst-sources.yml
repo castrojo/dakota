@@ -16,9 +16,7 @@ on:
           - manual-merge
           - tarballs
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: read-all
 
 env:
   BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d
@@ -26,6 +24,9 @@ env:
 jobs:
   track:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -266,6 +267,9 @@ jobs:
 
   track-tarballs:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
     if: >-
       github.event.inputs.group == 'all' ||
       github.event.inputs.group == 'tarballs' ||

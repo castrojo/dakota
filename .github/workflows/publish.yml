@@ -10,6 +10,8 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
+permissions: read-all
+
 concurrency:
   group: publish-main
   cancel-in-progress: false
@@ -54,7 +56,7 @@ jobs:
 
       - name: Capture build timestamp
         id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Remove unwanted software
         uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
@@ -231,3 +233,4 @@ jobs:
         with:
           subject-name: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

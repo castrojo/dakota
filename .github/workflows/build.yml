@@ -16,6 +16,8 @@ on:
     # require gbm.gnome.org to have built the new ref first. The 13:00 UTC
     # schedule above provides this buffer. Early dispatch = cold build = timeout.
 
+permissions: read-all
+
 env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
@@ -81,7 +83,7 @@ jobs:
 
       - name: Capture build timestamp
         id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # ── Disk and storage setup ────────────────────────────────────────
       # Both steps must run before any podman call (BST uses rootful podman
@@ -285,7 +287,7 @@ jobs:
 
       - name: Capture build timestamp
         id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Generate BuildStream CI config
         env:
