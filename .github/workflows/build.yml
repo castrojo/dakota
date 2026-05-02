@@ -256,7 +256,7 @@ jobs:
   # Disabled: webkit cold-builds OOM/timeout the ARM runner. Re-enable once
   # the webkit artifacts are cached in cache.projectbluefin.io.
   build-aarch64:
-    if: ${{ false }}
+    if: false
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
     outputs:
