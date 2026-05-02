@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     # Variant matrix: the default Bluefin image and the NVIDIA variant build
     # in parallel. They share the BST artifact cache via cache.projectbluefin.io,
     # so whichever runs first warms the closure for the other. NVIDIA is
