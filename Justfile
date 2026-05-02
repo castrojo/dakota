@@ -32,6 +32,11 @@ bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
+    # Persist generated source plugin state (snakeoil secureboot keys from
+    # gnome-build-meta's generated.py plugin). Without this mount the keys
+    # regenerate on every container invocation, printing to stdout and
+    # breaking any tool (e.g. buildstream-sbom) that pipes bst show output.
+    mkdir -p "${HOME}/.config/buildstream-generate"
     # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
@@ -41,6 +46,7 @@ bst *ARGS:
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
         -w /src \
         "{{bst2_image}}" \
         bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
@@ -651,6 +657,129 @@ inspect: _ensure-bcvk
     fi
 
     $SUDO_CMD bcvk images list
+
+# ── SBOM ─────────────────────────────────────────────────────────────
+# Generate a BST-native SBOM (SPDX 2.3) using buildstream-sbom.
+# Reads directly from BST element metadata — captures all ~1100+ elements
+# including GNOME/GTK/systemd from junctions (unlike syft which can only
+# fingerprint binaries in the rootfs and misses source-built packages).
+# Does NOT require a pre-built image — just the BST project files.
+# Output: dakota.spdx.json in repo root.
+#
+# Local testing:
+#   just sbom                                # generate SBOM
+#   jq '.spdxVersion' dakota.spdx.json      # verify SPDX-2.3
+#   jq '.packages | length' dakota.spdx.json  # expect ~1100+
+#   jq -r '.packages[].name' dakota.spdx.json | grep -i "gnome\|gtk\|systemd"
+[group('test')]
+sbom:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Persist the snakeoil key cache so bst show runs silently (see bst recipe).
+    mkdir -p "${HOME}/.config/buildstream-generate"
+    GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    # Prime the generated source plugin cache (snakeoil secureboot keys).
+    # The gnome-build-meta generated.py plugin runs `make` on first use and
+    # caches the result. If the cache is cold, the make output pollutes stdout
+    # and breaks buildstream-sbom's bst show pipe. Priming here ensures the
+    # cache is warm before buildstream-sbom runs.
+    echo "==> Priming BST generated source cache..."
+    podman run --rm \
+        --privileged \
+        --device /dev/fuse \
+        --network=host \
+        -v "{{justfile_directory()}}:/src:rw" \
+        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
+        -w /src \
+        "{{bst2_image}}" \
+        bash -c 'bst --no-colors show --deps none --format "%{name}" oci/bluefin.bst' \
+        2>/dev/null || true
+
+    echo "==> Generating BST-native SBOM with buildstream-sbom..."
+    # Pinned to commit 0706fec3 (2026-04-01) — latest main, includes element
+    # names in SPDX output (issue #9 fix). Switch to a versioned PyPI release
+    # once the project publishes one.
+    podman run --rm \
+        --privileged \
+        --device /dev/fuse \
+        --network=host \
+        -v "{{justfile_directory()}}:/src:rw" \
+        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
+        -w /src \
+        "{{bst2_image}}" \
+        bash -c "
+            for attempt in 1 2 3; do
+                pip install --quiet \
+                    git+https://gitlab.com/BuildStream/buildstream-sbom.git@0706fec3bedf6f73bd9d2fed32c2aed585feef8d \
+                    && break
+                echo \"buildstream-sbom install failed (attempt \${attempt}/3); retrying in 5s...\"
+                [ \"\${attempt}\" -lt 3 ] && sleep 5
+            done
+            buildstream-sbom oci/bluefin.bst \
+                --spdx-name dakota \
+                --spdx-namespace https://github.com/projectbluefin/dakota/sbom/${GIT_SHA} \
+                --spdx-creator 'Tool: buildstream-sbom' \
+                --spdx-creator 'Organization: projectbluefin' \
+                --deps all \
+                --output /src/dakota.spdx.json
+        "
+    echo ""
+    echo "==> SBOM written to: $(pwd)/dakota.spdx.json"
+    du -sh dakota.spdx.json
+    echo ""
+    echo "==> Package count:"
+    jq '.packages | length' dakota.spdx.json
+
+# ── Verify supply-chain signatures ───────────────────────────────────
+# Verify cosign signature + SBOM referrer + SLSA attestation for a
+# pushed image. Requires: cosign, oras, gh CLI.
+# Usage: just verify                           (uses IMAGE_REGISTRY/IMAGE_NAME:latest)
+#        just verify ghcr.io/projectbluefin/dakota:latest
+[group('test')]
+verify image_ref="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    IMAGE="{{image_ref}}"
+    [ -z "$IMAGE" ] && IMAGE="ghcr.io/projectbluefin/dakota:latest"
+
+    echo "==> Verifying supply-chain security for: ${IMAGE}"
+    echo ""
+    STATUS=0
+
+    # 1. Cosign keyless signature
+    echo "── Cosign signature (keyless / Sigstore OIDC) ──"
+    if ! command -v cosign &>/dev/null; then
+        echo "SKIP: cosign not installed"
+    else
+        cosign verify \
+            --certificate-identity \
+                'https://github.com/projectbluefin/dakota/.github/workflows/publish.yml@refs/heads/main' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}" && echo "PASS: signature valid" || { echo "FAIL: signature check failed"; STATUS=1; }
+    fi
+    echo ""
+
+    # 2. SBOM referrer
+    echo "── SBOM OCI referrer ──"
+    if ! command -v oras &>/dev/null; then
+        echo "SKIP: oras not installed"
+    else
+        oras discover "${IMAGE}" && echo "PASS: referrers listed above" || { echo "FAIL: oras discover failed"; STATUS=1; }
+    fi
+    echo ""
+
+    # 3. SLSA attestation
+    echo "── SLSA build provenance (actions/attest) ──"
+    if ! command -v gh &>/dev/null; then
+        echo "SKIP: gh not installed"
+    else
+        gh attestation verify "oci://${IMAGE}" \
+            --repo projectbluefin/dakota && echo "PASS: attestation valid" || { echo "FAIL: attestation check failed"; STATUS=1; }
+    fi
+    exit "${STATUS}"
 
 # ── Lint ─────────────────────────────────────────────────────────────
 [group('test')]

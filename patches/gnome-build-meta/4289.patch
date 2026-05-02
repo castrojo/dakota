@@ -1,6 +1,6 @@
-From 49c54b16af8e5faf274fe018f737699a1d1a478b Mon Sep 17 00:00:00 2001
-From: "Jorge O. Castro" <jorge.castro@gmail.com>
-Date: Fri, 10 Apr 2026 23:17:46 -0400
+From fdc9c9729c073a56891951eb20b80e5423dfe133 Mon Sep 17 00:00:00 2001
+From: Valentin David <me@valentindavid.com>
+Date: Sun, 16 Nov 2025 10:24:28 +0100
 Subject: [PATCH] Automatically generate keys
 
 ---
@@ -31,10 +31,17 @@ Subject: [PATCH] Automatically generate keys
  create mode 100644 source-plugins/generated.py
 
 diff --git a/.gitlab-ci/scripts/global-before-script.sh b/.gitlab-ci/scripts/global-before-script.sh
-index 8aee56e..b3c37ab 100644
+index 4a8f858c7..f97a203b2 100644
 --- a/.gitlab-ci/scripts/global-before-script.sh
 +++ b/.gitlab-ci/scripts/global-before-script.sh
-@@ -14,10 +14,10 @@ mkdir -p logs
+@@ -2,24 +2,24 @@
+ 
+ set -e
+ set -o pipefail
+ set -x
+ 
+ # Ensure the log directory exists
+ mkdir -p logs
  
  # Setup certificates and image version for sysupdate
  if [ "${CI_COMMIT_REF_PROTECTED-}" != true ] || [ "${CI_PIPELINE_SOURCE-}" = "schedule" ]; then
@@ -46,8 +53,22 @@ index 8aee56e..b3c37ab 100644
 +    export KEY_MODE=import
  fi
  
+ # Setup the token for pushing to the cache
+ echo $CACHE_TOKEN >.gitlab-ci/gbm-cache-token
+ 
  ./.gitlab-ci/scripts/generate-buildtream-conf.sh nopush >.gitlab-ci/buildstream-nopush.conf
-@@ -57,3 +57,6 @@ echo "commit: '${commit}'" >> include/image-version.yml
+ ./.gitlab-ci/scripts/generate-buildtream-conf.sh >.gitlab-ci/buildstream.conf
+ 
+ build_num="${CI_PIPELINE_ID}"
+ if [ "${CI_COMMIT_BRANCH-}" = master ]; then
+@@ -48,10 +48,13 @@ export IMAGE_VERSION
+ 
+ commit=$(git rev-parse "${CI_MERGE_REQUEST_DIFF_BASE_SHA-HEAD}")
+ commit_time=$(git log -1 --format=format:%ct "${CI_MERGE_REQUEST_DIFF_BASE_SHA-HEAD}")
+ commit_date_pretty=$(git show -s --format=%ci "${CI_MERGE_REQUEST_DIFF_BASE_SHA-HEAD}")
+ 
+ echo "filesystem-time: ${commit_time}" >> include/image-version.yml
+ echo "commit: '${commit}'" >> include/image-version.yml
  echo "commit-date-pretty: '${commit_date_pretty}'" >> include/image-version.yml
  
  cat include/image-version.yml
@@ -55,10 +76,17 @@ index 8aee56e..b3c37ab 100644
 +export BST="${BST} -o key_mode ${KEY_MODE}"
 +export BST_NO_PUSH="${BST_NO_PUSH} -o key_mode ${KEY_MODE}"
 diff --git a/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh b/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
-index a7496db..78f026d 100755
+index a7496db29..78f026dab 100755
 --- a/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
 +++ b/.gitlab-ci/scripts/publish-sysupdate-to-s3.sh
-@@ -24,6 +24,7 @@ if [ -n "${target_dir}" ] && [ -n "${IMAGE_VERSION}" ]; then
+@@ -17,20 +17,21 @@ if [ -n "${target_dir}" ] && [ -n "${IMAGE_VERSION}" ]; then
+     mv update-images/SHA256SUMS "update-images/SHA256SUMS.version.${IMAGE_VERSION}-${ARCH}"
+ 
+     aws s3 sync --acl public-read \
+         update-images/ "s3://gnome-build-meta/$target_dir/sysupdate/"
+ 
+     aws s3 cp --acl public-read \
+         "s3://gnome-build-meta/${target_dir}/sysupdate/" update-images/ \
          --recursive --exclude "*" --include "SHA256SUMS.version.*"
  
      cat update-images/SHA256SUMS.version.* > update-images/SHA256SUMS
@@ -66,11 +94,25 @@ index a7496db..78f026d 100755
      gpg --homedir=files/boot-keys/private-key \
          --output "update-images/SHA256SUMS.gpg" \
          --detach-sig "update-images/SHA256SUMS"
+ 
+     # keep SHA256SUMS files at the end to minimize time for which files are not available
+     aws s3 sync --acl public-read \
+         --cache-control max-age=1800 \
+         update-images/ "s3://gnome-build-meta/$target_dir/sysupdate/" \
+         --exclude "*" --include "SHA256SUMS" --include "SHA256SUMS.gpg"
+ fi
 diff --git a/elements/gnomeos-deps/efitools.bst b/elements/gnomeos-deps/efitools.bst
-index e4e6585..36df95e 100644
+index e4e6585db..36df95e3a 100644
 --- a/elements/gnomeos-deps/efitools.bst
 +++ b/elements/gnomeos-deps/efitools.bst
-@@ -9,29 +9,29 @@ sources:
+@@ -2,43 +2,43 @@ kind: make
+ 
+ sources:
+ - kind: git_repo
+   url: kernel:linux/kernel/git/jejb/efitools.git
+   track: v1.9.2
+   ref: v1.9.2-0-g392836a46ce3c92b55dc88a1aebbcfdfc5dcddce
+ - kind: patch
    path: patches/efitools/aarch64-on-newer-gnu-efi.patch
  - kind: patch
    path: patches/efitools/binutils_2_46.patch
@@ -122,11 +164,25 @@ index e4e6585..36df95e 100644
    directory: extra-db
  - kind: git_repo
    url: github:microsoft/secureboot_objects.git
+   track: 'v*-signed'
+   directory: microsoft_objects
+   ref: v1.6.4-signed-0-gbd7abe3cc73734cf364f6a4bc529ef12a9439ec8
+ 
+ build-depends:
+ - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
+ - freedesktop-sdk.bst:components/gnu-efi.bst
 diff --git a/elements/gnomeos-deps/shim.bst b/elements/gnomeos-deps/shim.bst
-index 487eb1b..61a044d 100644
+index 487eb1b70..61a044dba 100644
 --- a/elements/gnomeos-deps/shim.bst
 +++ b/elements/gnomeos-deps/shim.bst
-@@ -14,8 +14,8 @@ sources:
+@@ -7,22 +7,22 @@ sources:
+   exclude:
+   - '*-rc*'
+   - '16.0'
+   ref: 16.1-0-gafc49558b34548644c1cd0ad1b6526a9470182ed
+ - kind: git_module
+   path: gnu-efi
+   url: github:rhboot/gnu-efi.git
    ref: dc7fd96f23d6b582416f672844362d776d175cf4
  - kind: patch
    path: patches/shim/binutils_2_46.patch
@@ -137,11 +193,25 @@ index 487eb1b..61a044d 100644
    directory: boot-keys
  
  build-depends:
+ - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
+ - freedesktop-sdk.bst:components/git-minimal.bst
+ - freedesktop-sdk.bst:components/openssl.bst
+ - gnomeos-deps/efitools.bst
+ 
+ variables:
+   (?):
 diff --git a/elements/gnomeos/debug/layer.bst b/elements/gnomeos/debug/layer.bst
-index c5d3356..b542eba 100644
+index c5d33564e..b542ebaa4 100644
 --- a/elements/gnomeos/debug/layer.bst
 +++ b/elements/gnomeos/debug/layer.bst
-@@ -10,10 +10,10 @@ build-depends:
+@@ -3,24 +3,24 @@ kind: manual
+ build-depends:
+ - freedesktop-sdk.bst:components/fakecap.bst
+ - freedesktop-sdk.bst:components/systemd.bst
+ - freedesktop-sdk.bst:components/erofs-utils.bst
+ - gnomeos/os-release.bst
+ - filename: gnomeos/debug/filesystem.bst
+   config:
      location: '/sysroot-debug'
  
  sources:
@@ -156,11 +226,25 @@ index c5d3356..b542eba 100644
  
  variables:
    repart-seed: 0dc2e590-c162-4ed3-992f-75ddb3fdbb65
+   strip-binaries: ''
+ 
+ environment:
+   EROFS_OPTIONS: -z zstd --all-time -T %{filesystem-time} -E fragments,fragdedupe=inode
+   EROFS_WORKERS: --workers=%{max-jobs}
+   LD_PRELOAD: /usr/libexec/fakecap/fakecap.so
+   FAKECAP_DB: '%{build-root}/fakecap'
 diff --git a/elements/gnomeos/devel/layer.bst b/elements/gnomeos/devel/layer.bst
-index ca487f7..9576c82 100644
+index ca487f70e..9576c82f3 100644
 --- a/elements/gnomeos/devel/layer.bst
 +++ b/elements/gnomeos/devel/layer.bst
-@@ -15,10 +15,10 @@ build-depends:
+@@ -8,24 +8,24 @@ build-depends:
+ - gnomeos/usr/initial-scripts.bst
+ - gnomeos/devel/initial-scripts.bst
+ - filename: gnomeos/usr/filesystem.bst
+   config:
+     location: '/sysroot'
+ - filename: gnomeos/devel/filesystem.bst
+   config:
      location: '/sysroot-devel'
  
  sources:
@@ -175,11 +259,25 @@ index ca487f7..9576c82 100644
  
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
+   repart-seed: 53752261-a988-42fb-a585-b35ae0ab2af4
+   strip-binaries: ''
+ 
+ environment:
+   EROFS_OPTIONS: -z zstd --all-time -T %{filesystem-time} -E fragments,fragdedupe=inode
+   EROFS_WORKERS: --workers=%{max-jobs}
+   LD_PRELOAD: /usr/libexec/fakecap/fakecap.so
 diff --git a/elements/gnomeos/fwupd-efi-signed.bst b/elements/gnomeos/fwupd-efi-signed.bst
-index e1c852e..4d99bf9 100644
+index e1c852e06..4d99bf99b 100644
 --- a/elements/gnomeos/fwupd-efi-signed.bst
 +++ b/elements/gnomeos/fwupd-efi-signed.bst
-@@ -25,7 +25,7 @@ config:
+@@ -18,14 +18,14 @@ variables:
+ config:
+   build-commands:
+   - |
+     sbsign --key VENDOR.key --cert VENDOR.crt --output "fwupd%{efi-arch}.efi.signed" "%{libexecdir}/fwupd/efi/fwupd%{efi-arch}.efi"
+ 
+   install-commands:
+   - |
      install -Dm644 -t "%{install-root}%{libexecdir}/fwupd/efi" "fwupd%{efi-arch}.efi.signed"
  
  sources:
@@ -192,10 +290,10 @@ index e1c852e..4d99bf9 100644
 +- kind: generated
 +  path: VENDOR.crt
 diff --git a/elements/gnomeos/import-deployment-pub-key.bst b/elements/gnomeos/import-deployment-pub-key.bst
-index 9139516..81b661a 100644
+index 913951658..81b661aed 100644
 --- a/elements/gnomeos/import-deployment-pub-key.bst
 +++ b/elements/gnomeos/import-deployment-pub-key.bst
-@@ -1,8 +1,8 @@
+@@ -1,15 +1,15 @@
  kind: import
  
  sources:
@@ -206,11 +304,25 @@ index 9139516..81b661a 100644
  
  runtime-depends:
  - freedesktop-sdk.bst:components/systemd.bst
+ 
+ config:
+   target: /usr/lib/systemd
+ 
+ public:
+   bst:
+     overlap-whitelist:
 diff --git a/elements/gnomeos/initramfs/signed-modules.bst b/elements/gnomeos/initramfs/signed-modules.bst
-index ebdfa7c..a6cfc6b 100644
+index ebdfa7cb1..a6cfc6bc6 100644
 --- a/elements/gnomeos/initramfs/signed-modules.bst
 +++ b/elements/gnomeos/initramfs/signed-modules.bst
-@@ -30,7 +30,7 @@ variables:
+@@ -23,14 +23,14 @@ config:
+   - |
+     find '%{install-root}/usr/lib/modules' -type f -name "*.ko.zst" -exec unzstd --rm {} ';'
+ 
+   - |
+     find '%{install-root}/usr/lib/modules' -type f -name "*.ko" -exec sign-file sha512 MODULES.key linux-module-cert.cer {} ';' -exec zstd --rm  {} ';'
+ 
+ variables:
    strip-binaries: ''
  
  sources:
@@ -223,10 +335,17 @@ index ebdfa7c..a6cfc6b 100644
 +- kind: generated
 +  path: modules/linux-module-cert.crt
 diff --git a/elements/gnomeos/initramfs/signed-nvidia-modules.bst b/elements/gnomeos/initramfs/signed-nvidia-modules.bst
-index 5037019..b6ace99 100644
+index 50370193d..b6ace990e 100644
 --- a/elements/gnomeos/initramfs/signed-nvidia-modules.bst
 +++ b/elements/gnomeos/initramfs/signed-nvidia-modules.bst
-@@ -33,7 +33,7 @@ config:
+@@ -26,14 +26,14 @@ config:
+     find '%{install-root}/usr/lib/modules' -type f -name "*.ko" -exec sign-file sha512 MODULES.key linux-module-cert.cer {} ';' -exec zstd --rm {} ';'
+ 
+   - |
+     install -Dm644 -t '%{install-root}%{indep-libdir}/modprobe.d' '%{indep-libdir}/modprobe.d/nvidia.conf'
+     install -Dm644 -t '%{install-root}%{indep-libdir}/modules-load.d' '%{indep-libdir}/modules-load.d/nvidia.conf'
+ 
+   - |
      cp -rT /usr/lib/firmware '%{install-root}%{indep-libdir}/firmware'
  
  sources:
@@ -239,10 +358,13 @@ index 5037019..b6ace99 100644
 +- kind: generated
 +  path: modules/linux-module-cert.crt
 diff --git a/elements/gnomeos/linux-module-cert.bst b/elements/gnomeos/linux-module-cert.bst
-index d740dfe..1dc663e 100644
+index d740dfeb8..1dc663e15 100644
 --- a/elements/gnomeos/linux-module-cert.bst
 +++ b/elements/gnomeos/linux-module-cert.bst
-@@ -4,5 +4,5 @@ config:
+@@ -1,8 +1,8 @@
+ kind: import
+ 
+ config:
    target: /keys
  
  sources:
@@ -251,10 +373,17 @@ index d740dfe..1dc663e 100644
 +- kind: generated
 +  path: modules
 diff --git a/elements/gnomeos/nvidia-modules/layer.bst b/elements/gnomeos/nvidia-modules/layer.bst
-index c460e95..b57145f 100644
+index c460e95dc..b57145fbb 100644
 --- a/elements/gnomeos/nvidia-modules/layer.bst
 +++ b/elements/gnomeos/nvidia-modules/layer.bst
-@@ -10,10 +10,10 @@ build-depends:
+@@ -3,24 +3,24 @@ kind: manual
+ build-depends:
+ - freedesktop-sdk.bst:components/fakecap.bst
+ - freedesktop-sdk.bst:components/systemd.bst
+ - freedesktop-sdk.bst:components/erofs-utils.bst
+ - gnomeos/os-release.bst
+ - filename: gnomeos/initramfs/signed-nvidia-modules.bst
+   config:
      location: '/sysroot-nvidia-modules'
  
  sources:
@@ -269,11 +398,25 @@ index c460e95..b57145f 100644
  
  variables:
    repart-seed: a19b0f25-42ac-4c92-8921-d8d4079ec140
+   strip-binaries: ''
+ 
+ environment:
+   EROFS_OPTIONS: -z zstd --all-time -T %{filesystem-time} -E fragments,fragdedupe=inode
+   EROFS_WORKERS: --workers=%{max-jobs}
+   LD_PRELOAD: /usr/libexec/fakecap/fakecap.so
+   FAKECAP_DB: '%{build-root}/fakecap'
 diff --git a/elements/gnomeos/nvidia-runtime/layer.bst b/elements/gnomeos/nvidia-runtime/layer.bst
-index b1d630d..9340614 100644
+index b1d630d6d..93406141b 100644
 --- a/elements/gnomeos/nvidia-runtime/layer.bst
 +++ b/elements/gnomeos/nvidia-runtime/layer.bst
-@@ -15,10 +15,10 @@ build-depends:
+@@ -8,24 +8,24 @@ build-depends:
+ - gnomeos/usr/initial-scripts.bst
+ - gnomeos/nvidia-runtime/initial-scripts.bst
+ - filename: gnomeos/usr/filesystem.bst
+   config:
+     location: '/sysroot'
+ - filename: gnomeos/nvidia-runtime/filesystem.bst
+   config:
      location: '/sysroot-nvidia-runtime'
  
  sources:
@@ -288,11 +431,18 @@ index b1d630d..9340614 100644
  
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
+   repart-seed: 53752261-a988-42fb-a585-b35ae0ab2af4
+   strip-binaries: ''
+ 
+ environment:
+   EROFS_OPTIONS: -z zstd --all-time -T %{filesystem-time} -E fragments,fragdedupe=inode
+   EROFS_WORKERS: --workers=%{max-jobs}
+   LD_PRELOAD: /usr/libexec/fakecap/fakecap.so
 diff --git a/elements/gnomeos/public-keys.bst b/elements/gnomeos/public-keys.bst
-index 73c4a03..de4751a 100644
+index 73c4a0388..de4751af1 100644
 --- a/elements/gnomeos/public-keys.bst
 +++ b/elements/gnomeos/public-keys.bst
-@@ -1,10 +1,10 @@
+@@ -1,17 +1,17 @@
  kind: manual
  
  sources:
@@ -307,11 +457,25 @@ index 73c4a03..de4751a 100644
  
  build-depends:
  - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
+ 
+ variables:
+   strip-binaries: ''
+ 
+ config:
+   install-commands:
+   - |
 diff --git a/elements/gnomeos/replace-signed-systemd-boot.bst b/elements/gnomeos/replace-signed-systemd-boot.bst
-index 0ef2f7b..ac061b4 100644
+index 0ef2f7b2c..ac061b46b 100644
 --- a/elements/gnomeos/replace-signed-systemd-boot.bst
 +++ b/elements/gnomeos/replace-signed-systemd-boot.bst
-@@ -29,7 +29,7 @@ public:
+@@ -22,14 +22,14 @@ config:
+ 
+   install-commands:
+   - install -Dm644 -t "%{install-root}%{indep-libdir}/systemd/boot/efi" "systemd-boot%{efi-arch}.efi"
+ 
+ public:
+   bst:
+     overlap-whitelist:
      - "%{indep-libdir}/systemd/boot/efi/systemd-boot%{efi-arch}.efi"
  
  sources:
@@ -324,10 +488,17 @@ index 0ef2f7b..ac061b4 100644
 +- kind: generated
 +  path: VENDOR.crt
 diff --git a/elements/gnomeos/signed-boot-common.bst b/elements/gnomeos/signed-boot-common.bst
-index a30e75a..40eee84 100644
+index a30e75a37..40eee8493 100644
 --- a/elements/gnomeos/signed-boot-common.bst
 +++ b/elements/gnomeos/signed-boot-common.bst
-@@ -46,7 +46,7 @@ config:
+@@ -39,14 +39,14 @@ config:
+         # Verify we are in a case without shim
+         ! [ -d "%{install-root}/efi/EFI/org.gnome.os ]
+         ! [ -d "%{install-root}/efi/EFI/BOOT ]
+         # Use systemd boot as fallback loader
+         mkdir -p "%{install-root}/efi/EFI/BOOT"
+         cp "%{install-root}/efi/EFI/systemd/systemd-boot%{efi-arch}.efi" "%{install-root}/efi/EFI/BOOT/BOOT$(echo "%{efi-arch}" | tr a-z A-Z).EFI"
+         ;;
      esac
  
  sources:
@@ -340,10 +511,17 @@ index a30e75a..40eee84 100644
 +- kind: generated
 +  path: DB.crt
 diff --git a/elements/gnomeos/signed-boot.bst b/elements/gnomeos/signed-boot.bst
-index 1b92008..30a715d 100644
+index 1b9200874..30a715d8d 100644
 --- a/elements/gnomeos/signed-boot.bst
 +++ b/elements/gnomeos/signed-boot.bst
-@@ -120,15 +120,15 @@ config:
+@@ -113,22 +113,22 @@ config:
+       --pcr-private-key=fstab-tpm2-pcr-private.pem \
+       --pcr-public-key=fstab-tpm2-pcr-public.pem \
+       --phases="enter-initrd:leave-initrd" \
+       --secureboot-private-key=VENDOR.key \
+       --secureboot-certificate=VENDOR.crt \
+       --linux="/boot/vmlinuz" \
+       --initrd="/usr/lib/modules/${version}/initramfs.img" \
        "${MICROCODE[@]}" "${DEVICETREES[@]}"
  
  sources:
@@ -372,10 +550,17 @@ index 1b92008..30a715d 100644
 +- kind: generated
 +  path: fstab-tpm2-pcr-private.pem
 diff --git a/elements/gnomeos/snapd/layer.bst b/elements/gnomeos/snapd/layer.bst
-index b8f8407..8cbf91d 100644
+index b8f84071c..8cbf91d16 100644
 --- a/elements/gnomeos/snapd/layer.bst
 +++ b/elements/gnomeos/snapd/layer.bst
-@@ -15,10 +15,10 @@ build-depends:
+@@ -8,24 +8,24 @@ build-depends:
+ - gnomeos/usr/initial-scripts.bst
+ - gnomeos/snapd/initial-scripts.bst
+ - filename: gnomeos/usr/filesystem.bst
+   config:
+     location: '/sysroot'
+ - filename: gnomeos/snapd/filesystem.bst
+   config:
      location: '/sysroot-snapd'
  
  sources:
@@ -390,11 +575,25 @@ index b8f8407..8cbf91d 100644
  
  variables:
    sysroot-seed: df2427db-01ec-4c99-96b1-be3edb3cd9f6
+   repart-seed: 42a68ae3-36dd-4549-a0e6-47404842b63e
+   strip-binaries: ''
+ 
+ environment:
+   EROFS_OPTIONS: -z zstd --all-time -T %{filesystem-time} -E fragments,fragdedupe=inode
+   EROFS_WORKERS: --workers=%{max-jobs}
+   LD_PRELOAD: /usr/libexec/fakecap/fakecap.so
 diff --git a/project.conf b/project.conf
-index a9540f4..ae94672 100644
+index a9540f434..ae9467286 100644
 --- a/project.conf
 +++ b/project.conf
-@@ -65,6 +65,17 @@ options:
+@@ -58,20 +58,31 @@ options:
+     description: Enable x86_64-v3 (EXPERIMENTAL)
+     default: false
+   channel:
+     type: enum
+     description: Version channel of the OS
+     default: stable
+     values:
      - nightly
      - stable
  
@@ -412,7 +611,21 @@ index a9540f4..ae94672 100644
  # Some overrides to the default sandbox execution environment
  #
  environment:
-@@ -136,6 +147,22 @@ sources:
+   LC_ALL: en_US.UTF-8
+   (?):
+   - arch == "aarch64":
+       # Our aarch64 CI runner uses CentOS, which uses 64 KB page sizes, but we do not
+       # want to support large pages in WebKit as this requires disabling both JIT and
+       # bmalloc, including all heap security features. As a workaround until the CI
+       # runner is switched from CentOS to a more-compatible OS, we can disable these
+@@ -129,20 +140,36 @@ elements:
+ sources:
+   git_repo:
+     config:
+       ref-format: git-describe
+   cargo2:
+     config:
+       url: crates:crates
        git-mirrors:
          https://github.com/: "github:"
          https://gitlab.gnome.org/GNOME/: "gnome:"
@@ -435,7 +648,21 @@ index a9540f4..ae94672 100644
  
  split-rules:
    devel:
-@@ -226,3 +253,8 @@ plugins:
+     (>):
+     - '%{indep-libdir}/**/include'
+     - '%{indep-libdir}/**/include/**'
+     - '%{bindir}/*-config'
+     - '%{libdir}/cmake'
+     - '%{libdir}/cmake/**'
+     - '%{datadir}/cmake'
+@@ -219,10 +246,15 @@ plugins:
+   - git_module
+   - git_repo
+   - patch_queue
+   - zip
+ 
+ - origin: local
+   path: plugins
    elements:
    - collect_initial_scripts
    - cargo
@@ -446,7 +673,7 @@ index a9540f4..ae94672 100644
 +  - generated
 diff --git a/source-plugins/generated.py b/source-plugins/generated.py
 new file mode 100644
-index 0000000..cd3d4dc
+index 000000000..cd3d4dcb6
 --- /dev/null
 +++ b/source-plugins/generated.py
 @@ -0,0 +1,102 @@
@@ -553,10 +780,17 @@ index 0000000..cd3d4dc
 +def setup():
 +    return GeneratedSource
 diff --git a/utils/enable-local-repo.sh b/utils/enable-local-repo.sh
-index a40c1c1..4851441 100755
+index a40c1c164..48514416f 100755
 --- a/utils/enable-local-repo.sh
 +++ b/utils/enable-local-repo.sh
-@@ -106,6 +106,8 @@ clean() {
+@@ -99,20 +99,22 @@ set_url() {
+ [Source]
+ Path=${1}
+ EOF
+     done
+ }
+ 
+ clean() {
      rm -f /etc/sysupdate.d/*-gnomeos-*.transfer.d/local.conf
  }
  
@@ -565,11 +799,25 @@ index a40c1c1..4851441 100755
  if [ "${clean+set}" = set ]; then
      clean
  else
+     if [ "${url+set}" != set ]; then
+         url="${url_local}"
+         pubring="${default_pubring}"
+         set_sysext=1
+     fi
+     if [ "${pubring+set}" = set ]; then
+         import_pubring "${pubring}"
 diff --git a/utils/run-secure-vm.sh b/utils/run-secure-vm.sh
-index ff146df..90f9100 100755
+index ff146dfaa..90f910048 100755
 --- a/utils/run-secure-vm.sh
 +++ b/utils/run-secure-vm.sh
-@@ -272,7 +272,6 @@ if [ "${rebuild_iso+set}" = set ] || (! [ -f "${STATE_DIR}/disk.iso" ] && [ "${l
+@@ -265,21 +265,20 @@ cleanup() {
+ trap cleanup EXIT INT
+ 
+ if [ "${rebuild_iso+set}" = set ] || (! [ -f "${STATE_DIR}/disk.iso" ] && [ "${live+set}" = set ]); then
+     mkdir -p "${STATE_DIR}"
+     checkout="$(mktemp -d --tmpdir="${STATE_DIR}" checkout.XXXXXXXXXX)"
+     cleanup_dirs+=("${checkout}")
+ 
      if [ "${buildid+set}" = set ]; then
          cp "${STATE_DIR}/builds/gnome_os_${buildid}.iso" "${checkout}/disk.iso"
      else
@@ -577,7 +825,21 @@ index ff146df..90f9100 100755
          "${BST}" "${BST_OPTIONS[@]}" build "${IMAGE_ELEMENT}"
          "${BST}" "${BST_OPTIONS[@]}" artifact checkout "${IMAGE_ELEMENT}" --directory "${checkout}"
      fi
-@@ -385,6 +384,7 @@ tmpfiles="$(mktemp -d --tmpdir="${STATE_DIR}" tmpfiles.XXXXXXXXXX)"
+     mv "${checkout}/disk.iso" "${STATE_DIR}/disk.iso"
+     rm -rf "${checkout}"
+ fi
+ 
+ if ! [ -f "${STATE_DIR}/OVMF_CODE.fd" ] || ! [ -f "${STATE_DIR}/OVMF_VARS_TEMPLATE.fd" ]; then
+     checkout="$(mktemp -d --tmpdir="${STATE_DIR}" checkout.XXXXXXXXXX)"
+     cleanup_dirs+=("${checkout}")
+@@ -378,20 +377,21 @@ cmdline+=("systemd.wants=sshd.service")
+ if [ ${#cmdline[@]} -gt 0 ]; then
+     TYPE11+=("value=io.systemd.stub.kernel-cmdline-extra=${cmdline[*]//,/,,}")
+ fi
+ 
+ tmpfiles_extra=()
+ 
+ tmpfiles="$(mktemp -d --tmpdir="${STATE_DIR}" tmpfiles.XXXXXXXXXX)"
  cleanup_dirs+=("${tmpfiles}")
  
  if [ "${local_updates+set}" = set ]; then
@@ -585,11 +847,25 @@ index ff146df..90f9100 100755
      cat <<EOF >"${tmpfiles}"/tmpfiles-import-pubring.conf
  f~ /etc/systemd/import-pubring.pgp 0644 root root - $(base64 -w0 files/boot-keys/import-pubring.pgp)
  EOF
+ 
+     tmpfiles_extra+=("${tmpfiles}"/tmpfiles-import-pubring.conf)
+ 
+     cat <<EOF >"${tmpfiles}"/local.conf
+ [Source]
+ Path=http://10.0.2.2:8080
+ EOF
 diff --git a/utils/run-sysupdate-repo.sh b/utils/run-sysupdate-repo.sh
-index 95f4415..1bb1beb 100755
+index 95f4415e4..1bb1bebf0 100755
 --- a/utils/run-sysupdate-repo.sh
 +++ b/utils/run-sysupdate-repo.sh
-@@ -113,6 +113,7 @@ fi
+@@ -106,20 +106,21 @@ cleanup_dirs+=("${checkout}")
+ 
+ if [ "${devel+set}" = set ]; then
+     image=(gnomeos/update-images.bst)
+ else
+     image=(gnomeos/update-images-user-only.bst)
+ fi
+ 
  "${BST}" "${BST_OPTIONS[@]}" build "${image}"
  
  "${BST}" "${BST_OPTIONS[@]}" artifact checkout "${image}" --directory "${checkout}"
@@ -597,6 +873,13 @@ index 95f4415..1bb1beb 100755
  gpg --homedir=files/boot-keys/private-key --output  "${checkout}/SHA256SUMS.gpg" --detach-sig "${checkout}/SHA256SUMS"
  
  if [ "${next_version+set}" = set ]; then
+     echo "${next_version}" >"${REPO_STATE}/next_version"
+ fi
+ 
+ if type -p caddy > /dev/null; then
+     if caddy -version > /dev/null; then
+         echo "Found caddy v1"
+         caddy -port "${PORT}" -root "${checkout}"
 -- 
-2.52.0
+2.54.0
 
