@@ -1,0 +1,279 @@
+name: Publish Bluefin dakota
+
+on:
+  workflow_run:
+    workflows: ["Build Bluefin dakota"]
+    types: [completed]
+    # NO branches: filter — merge_group runs on gh-readonly-queue/main/... refs, not 'main'.
+    # Job guard below handles PR exclusion.
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: dakota
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+# Queue concurrent publishes — never cancel. Prevents :latest race and SBOM/signature conflicts.
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    # NOTE for projectbluefin/dakota production: change runner to blacksmith-8vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      packages: write
+      id-token: write          # cosign OIDC + actions/attest
+      attestations: write      # actions/attest
+      artifact-metadata: write # SLSA — requires org-level token; personal forks show startup_failure (expected)
+    # Fire on: schedule builds, merge_group builds, workflow_dispatch from main.
+    # Block on: pull_request builds; workflow_dispatch from non-main branches.
+    # Note: merge_group head_branch is 'gh-readonly-queue/main/pr-NNN-<sha>', NOT 'main'.
+    # Must use startsWith to match queue branches targeting main.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event != 'pull_request' &&
+       (github.event.workflow_run.head_branch == 'main' ||
+        startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/')))
+    steps:
+      - name: Resolve SHA and trigger event
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "BUILD_SHA=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_ENV"
+            echo "TRIGGER_EVENT=${{ github.event.workflow_run.event }}" >> "$GITHUB_ENV"
+          else
+            echo "BUILD_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+            echo "TRIGGER_EVENT=workflow_dispatch" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ env.BUILD_SHA }}
+
+      - name: Setup Just
+        uses: taiki-e/install-action@just
+
+      - name: Mount BTRFS for podman storage
+        id: container-storage
+        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
+        continue-on-error: true
+        with:
+          target-dir: /var/lib/containers
+          mount-opts: compress-force=zstd:2
+          loopback-free: '1'
+
+      - name: Remove unwanted software
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # v10
+
+      - name: Capture build timestamp
+        id: timestamp
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Generate BuildStream CI config
+        env:
+          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
+          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+        run: |
+          mkdir -p logs
+
+          echo "$CASD_CLIENT_CERT" > client.crt
+          echo "$CASD_CLIENT_KEY" > client.key
+          cat > buildstream-ci.conf <<'BSTCONF'
+          scheduler:
+            on-error: continue
+            fetchers: 32
+            builders: 4
+            network-retries: 3
+
+          logging:
+            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
+            error-lines: 80
+
+          cachedir: /root/.cache/buildstream
+          logdir: /src/logs
+
+          build:
+            retry-failed: True
+
+          BSTCONF
+
+          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
+          artifacts:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: false
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          source-caches:
+            servers:
+            - url: https://cache.projectbluefin.io:11002
+              push: false
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          cache:
+            storage-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 60
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+          BSTCONFPUSH
+          fi
+
+          echo "=== BuildStream CI config ==="
+          cat buildstream-ci.conf
+
+      - name: Export OCI image from BuildStream
+        id: export
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
+          OCI_IMAGE_REVISION: ${{ env.BUILD_SHA }}
+          OCI_IMAGE_VERSION: latest
+        run: |
+          just export
+          echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Validate with bootc container lint
+        run: just lint
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
+
+      - name: Push :$BUILD_SHA and capture digest
+        id: push-sha
+        run: |
+          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.BUILD_SHA }}"
+          rm -f /tmp/digest.txt
+          for i in 1 2 3; do
+            sudo podman push --compression-format=zstd \
+              --digestfile /tmp/digest.txt \
+              "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.BUILD_SHA }}" && break
+            if [ "$i" -eq 3 ]; then
+              echo "Push failed for :${{ env.BUILD_SHA }} after ${i} attempts" >&2
+              exit 1
+            fi
+            echo "Push attempt $i failed, retrying..."
+            sleep 5
+          done
+          echo "digest=$(cat /tmp/digest.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Push :latest
+        # Only on nightly schedule or manual dispatch — never on merge_group re-runs.
+        # TRIGGER_EVENT is 'schedule' for nightly, 'workflow_dispatch' for manual.
+        # Checking TRIGGER_EVENT (not github.event_name) because inside publish.yml,
+        # github.event_name is always 'workflow_run' — checking event_name == 'schedule' is always false.
+        if: env.TRIGGER_EVENT == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          for i in 1 2 3; do
+            sudo podman push --compression-format=zstd \
+              "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" && break
+            if [ "$i" -eq 3 ]; then
+              echo "Push failed for :latest after ${i} attempts" >&2
+              exit 1
+            fi
+            echo "Push attempt $i failed, retrying..."
+            sleep 5
+          done
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.9.0
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Generate SBOM
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+        run: just sbom
+
+      - name: Sign image
+        env:
+          DIGEST: ${{ steps.push-sha.outputs.digest }}
+        run: |
+          cosign sign -y \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+
+      - name: Attach SBOM as OCI referrer
+        id: sbom-attach
+        env:
+          DIGEST: ${{ steps.push-sha.outputs.digest }}
+        run: |
+          SBOM_DIGEST=$(oras attach \
+            --artifact-type application/vnd.spdx+json \
+            --format go-template='{{.Digest}}' \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" \
+            dakota.spdx.json:application/vnd.spdx+json)
+          echo "sbom_digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign SBOM referrer
+        env:
+          SBOM_DIGEST: ${{ steps.sbom-attach.outputs.sbom_digest }}
+        run: |
+          cosign sign -y \
+            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}@${SBOM_DIGEST}"
+
+      - name: SLSA attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push-sha.outputs.digest }}
+
+      - name: Upload publish logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: publish-logs
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore
