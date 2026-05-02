@@ -162,9 +162,10 @@ jobs:
         run: |
           SBOM_DIGEST=$(oras attach \
             --artifact-type application/vnd.spdx+json \
-            --format go-template='{{.Digest}}' \
+            --format json \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" \
-            dakota.spdx.json:application/vnd.spdx+json)
+            dakota.spdx.json:application/vnd.spdx+json \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['digest'])")
           echo "sbom_digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Sign SBOM
