@@ -240,10 +240,19 @@ jobs:
       # schedule, workflow_dispatch). PRs skip this entirely — they only
       # validate the BST build succeeds, not produce a publishable image.
       # The nvidia variant has no separate publish path; skip it here.
-      # BST artifacts are in the local cache (just built above), so
-      # `bst artifact checkout` is a fast local read — no CAS download.
+      #
+      # Remote execution note: `bst build` pushes artifacts to remote CAS
+      # but does NOT stage them locally. `bst artifact checkout` (inside
+      # `just export`) needs local blobs. We explicitly pull first to
+      # transfer the artifact from remote CAS → local cache before checkout.
       # chunkah runs inside `just export` (see Justfile:154); the result
       # is 120 plain-zstd layers ready for `podman push --compression-format=zstd`.
+
+      - name: Pull OCI artifact from CAS to local cache
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+        run: just bst artifact pull oci/bluefin.bst
 
       - name: Export OCI image from BuildStream
         if: github.event_name != 'pull_request' && matrix.variant == 'default'
