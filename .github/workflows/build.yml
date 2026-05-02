@@ -223,6 +223,17 @@ jobs:
           just bst build ${{ matrix.element }}
         timeout-minutes: 420
 
+      # Push the built artifact to the remote CAS so the export job can pull it.
+      # Remote execution may populate the artifact cache implicitly, but an
+      # explicit push guarantees the artifact is there regardless of BST internals.
+      # Only push for the default variant (export job only handles default).
+      - name: Push OCI artifact to remote CAS
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        env:
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+        run: |
+          just bst artifact push --deps none ${{ matrix.element }}
+
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
 
@@ -343,7 +354,10 @@ jobs:
       - name: Export OCI image from BuildStream
         id: export
         env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          # CRITICAL: must match the build job's BST_FLAGS exactly.
+          # -o x86_64_v3 true affects the cache key — omitting it resolves
+          # a different artifact hash that was never pushed to the remote CAS.
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
           BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
           OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
           OCI_IMAGE_REVISION: ${{ github.sha }}
@@ -355,7 +369,7 @@ jobs:
 
       - name: Generate SBOM
         env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
         run: just sbom
 
       # Save OCI archive to BTRFS volume; compression happens at push time.
