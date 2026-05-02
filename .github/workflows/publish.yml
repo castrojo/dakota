@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-24.04
-    # NOTE for projectbluefin/dakota production: change runner to blacksmith-8vcpu-ubuntu-2404
+    # Scheduled (overnight) runs use standard runners — slow is fine, we're asleep.
+    # merge_group and workflow_dispatch runs use Blacksmith for the fast I/O (chunkah + SBOM).
+    runs-on: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule') && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       packages: write
