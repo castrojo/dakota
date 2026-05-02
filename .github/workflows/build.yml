@@ -81,6 +81,21 @@ jobs:
         id: timestamp
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
+      # ── Disk and storage setup ────────────────────────────────────────
+      # Both steps must run before any podman call (BST uses rootful podman
+      # to pull bst2; storage backend must be stable before first use).
+      - name: Remove unwanted software
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # v10
+
+      - name: Mount BTRFS for podman storage
+        id: container-storage
+        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
+        continue-on-error: true
+        with:
+          target-dir: /var/lib/containers
+          mount-opts: compress-force=zstd:2
+          loopback-free: '1'
+
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
       # - on-error: continue  -> find ALL failures, don't stop at first
@@ -213,12 +228,68 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: buildstream-logs-x86_64-${{ matrix.variant }}
           path: logs/
           retention-days: 7
           if-no-files-found: ignore
+
+      # ── Export, lint, SBOM, and artifact upload ───────────────────────
+      # Only for the default variant on publishable events (merge_group,
+      # schedule, workflow_dispatch). PRs skip this entirely — they only
+      # validate the BST build succeeds, not produce a publishable image.
+      # The nvidia variant has no separate publish path; skip it here.
+      # BST artifacts are in the local cache (just built above), so
+      # `bst artifact checkout` is a fast local read — no CAS download.
+      # chunkah runs inside `just export` (see Justfile:154); the result
+      # is 120 plain-zstd layers ready for `podman push --compression-format=zstd`.
+
+      - name: Export OCI image from BuildStream
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        id: export
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
+          OCI_IMAGE_REVISION: ${{ github.sha }}
+          OCI_IMAGE_VERSION: latest
+        run: |
+          just export
+          echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Validate with bootc container lint
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        run: just lint
+
+      - name: Generate SBOM
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        env:
+          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
+        run: just sbom
+
+      # Save OCI archive to the BTRFS volume to keep rootfs pressure low.
+      # podman save produces an uncompressed OCI archive; plain podman push
+      # (--compression-format=zstd) handles compression at push time.
+      # skopeo is intentionally avoided — see memory: plain podman push is
+      # the correct tool for post-chunkah images.
+      - name: Save OCI archive
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        run: |
+          sudo podman save --format oci-archive \
+            -o /var/lib/containers/dakota.oci.tar \
+            "${{ env.IMAGE_NAME }}:latest"
+
+      - name: Upload OCI and SBOM artifacts
+        if: github.event_name != 'pull_request' && matrix.variant == 'default'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dakota-oci-${{ github.sha }}
+          path: |
+            /var/lib/containers/dakota.oci.tar
+            dakota.spdx.json
+          retention-days: 3
+          if-no-files-found: error
 
   # ── aarch64 native build ──────────────────────────────────────────────────
   # Mirrors the x86_64 build job. ARM failures do not fail the workflow or

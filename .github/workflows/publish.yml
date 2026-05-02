@@ -7,6 +7,15 @@ on:
     # NO branches: filter — merge_group runs on gh-readonly-queue/main/... refs, not 'main'.
     # Job guard below handles PR exclusion.
   workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Build workflow run ID (leave empty to auto-detect from HEAD SHA)'
+        required: false
+        type: string
+      build_sha:
+        description: 'Git SHA to publish (defaults to HEAD of main if empty)'
+        required: false
+        type: string
 
 env:
   IMAGE_NAME: dakota
@@ -26,7 +35,8 @@ concurrency:
 jobs:
   publish:
     # Scheduled (overnight) runs use standard runners — slow is fine, we're asleep.
-    # merge_group and workflow_dispatch runs use Blacksmith for the fast I/O (chunkah + SBOM).
+    # merge_group and workflow_dispatch runs use Blacksmith for fast GHCR push throughput.
+    # BST, chunkah, and SBOM have moved to build.yml; publish now only loads+pushes+signs.
     runs-on: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule') && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -34,6 +44,7 @@ jobs:
       id-token: write          # cosign OIDC + actions/attest
       attestations: write      # actions/attest
       artifact-metadata: write # SLSA — requires org-level token; personal forks show startup_failure (expected)
+      actions: read            # cross-run artifact download (download-artifact with run-id)
     # Fire on: schedule builds, merge_group builds, workflow_dispatch from main.
     # Block on: pull_request builds; workflow_dispatch from non-main branches.
     # Note: merge_group head_branch is 'gh-readonly-queue/main/pr-NNN-<sha>', NOT 'main'.
@@ -48,146 +59,55 @@ jobs:
       - name: Resolve SHA and trigger event
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Triggered by a completed build run — run ID is known directly.
             echo "BUILD_SHA=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_ENV"
+            echo "BUILD_RUN_ID=${{ github.event.workflow_run.id }}" >> "$GITHUB_ENV"
             echo "TRIGGER_EVENT=${{ github.event.workflow_run.event }}" >> "$GITHUB_ENV"
-          else
-            echo "BUILD_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+          elif [ -n "${{ inputs.build_run_id }}" ]; then
+            # Manual dispatch with explicit run ID — derive SHA from the run.
+            RUN_SHA=$(gh api \
+              "repos/${{ github.repository }}/actions/runs/${{ inputs.build_run_id }}" \
+              --jq '.head_sha')
+            echo "BUILD_SHA=${RUN_SHA}" >> "$GITHUB_ENV"
+            echo "BUILD_RUN_ID=${{ inputs.build_run_id }}" >> "$GITHUB_ENV"
             echo "TRIGGER_EVENT=workflow_dispatch" >> "$GITHUB_ENV"
+          else
+            # Manual dispatch without run ID — look up latest successful build for SHA.
+            # If build is still running, this returns null and we fail fast with a clear error.
+            TARGET_SHA="${{ inputs.build_sha || github.sha }}"
+            echo "BUILD_SHA=${TARGET_SHA}" >> "$GITHUB_ENV"
+            echo "TRIGGER_EVENT=workflow_dispatch" >> "$GITHUB_ENV"
+            RUN_ID=$(gh api \
+              "repos/${{ github.repository }}/actions/workflows/build.yml/runs?head_sha=${TARGET_SHA}&status=success&per_page=1" \
+              --jq '.workflow_runs[0].id')
+            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+              echo "::error::No successful build run found for SHA ${TARGET_SHA}." \
+                   "If the build is still running, wait for it to finish and re-dispatch," \
+                   "or provide build_run_id explicitly." >&2
+              exit 1
+            fi
+            echo "BUILD_RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
           fi
 
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Download OCI and SBOM artifacts
+        # Artifact was uploaded by build.yml after export+chunkify+sbom.
+        # Uses cross-run download — requires actions: read permission.
+        # Fails immediately if artifact doesn't exist (missing = build state is bad;
+        # do not retry, re-run build.yml first then re-dispatch publish).
+        uses: actions/download-artifact@fa0a91b85d4f404e444306234dcc6d4aab00b1c8 # v4.1.8
         with:
-          ref: ${{ env.BUILD_SHA }}
+          name: dakota-oci-${{ env.BUILD_SHA }}
+          run-id: ${{ env.BUILD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/artifacts
 
-      - name: Setup Just
-        uses: taiki-e/install-action@just
-
-      - name: Mount BTRFS for podman storage
-        id: container-storage
-        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
-        continue-on-error: true
-        with:
-          target-dir: /var/lib/containers
-          mount-opts: compress-force=zstd:2
-          loopback-free: '1'
-
-      - name: Remove unwanted software
-        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # v10
-
-      - name: Capture build timestamp
-        id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
-
-      - name: Generate BuildStream CI config
-        env:
-          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
-          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+      - name: Load OCI archive into podman
+        id: load
         run: |
-          mkdir -p logs
-
-          echo "$CASD_CLIENT_CERT" > client.crt
-          echo "$CASD_CLIENT_KEY" > client.key
-          cat > buildstream-ci.conf <<'BSTCONF'
-          scheduler:
-            on-error: continue
-            fetchers: 32
-            builders: 4
-            network-retries: 3
-
-          logging:
-            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
-            error-lines: 80
-
-          cachedir: /root/.cache/buildstream
-          logdir: /src/logs
-
-          build:
-            retry-failed: True
-
-          BSTCONF
-
-          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
-          artifacts:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: false
-              connection-config:
-                keepalive-time: 60
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          source-caches:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: false
-              connection-config:
-                keepalive-time: 60
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          cache:
-            storage-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 60
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          remote-execution:
-            execution-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 60
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-            action-cache-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 60
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-          BSTCONFPUSH
-          fi
-
-          echo "=== BuildStream CI config ==="
-          cat buildstream-ci.conf
-
-      - name: Export OCI image from BuildStream
-        id: export
-        env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
-          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
-          OCI_IMAGE_REVISION: ${{ env.BUILD_SHA }}
-          OCI_IMAGE_VERSION: latest
-        run: |
-          just export
+          sudo podman load -i /tmp/artifacts/dakota.oci.tar
+          # Copy SBOM to workspace for oras attach (expects relative path)
+          cp /tmp/artifacts/dakota.spdx.json ./dakota.spdx.json
           echo "image_ref=${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_OUTPUT"
-
-      - name: Validate with bootc container lint
-        run: just lint
 
       - name: Login to GHCR
         env:
@@ -202,7 +122,7 @@ jobs:
       - name: Push :$BUILD_SHA and capture digest
         id: push-sha
         run: |
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+          sudo podman tag "localhost/${{ steps.load.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.BUILD_SHA }}"
           rm -f /tmp/digest.txt
           for i in 1 2 3; do
@@ -225,7 +145,7 @@ jobs:
         # github.event_name is always 'workflow_run' — checking event_name == 'schedule' is always false.
         if: env.TRIGGER_EVENT == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
+          sudo podman tag "localhost/${{ steps.load.outputs.image_ref }}" \
             "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
           for i in 1 2 3; do
             sudo podman push --compression-format=zstd \
@@ -243,11 +163,6 @@ jobs:
 
       - name: Install oras
         uses: oras-project/setup-oras@v1
-
-      - name: Generate SBOM
-        env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
-        run: just sbom
 
       - name: Sign image
         env:
@@ -283,7 +198,7 @@ jobs:
 
       - name: Upload publish logs
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: publish-logs
           path: logs/
