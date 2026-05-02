@@ -259,7 +259,9 @@ jobs:
 
           if [ "${{ matrix.group }}" = "auto-merge" ]; then
             echo "Enabling auto-merge..."
-            gh pr merge "$PR_URL" --auto --squash || echo "::warning::Could not enable auto-merge"
+            # Use --merge to match the merge queue's required merge_method=MERGE.
+            # --squash conflicts with the merge queue ruleset and prevents auto-queuing.
+            gh pr merge "$PR_URL" --auto --merge || echo "::warning::Could not enable auto-merge"
           fi
 
   track-tarballs:
