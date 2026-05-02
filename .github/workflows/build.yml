@@ -83,7 +83,7 @@ jobs:
 
       - name: Capture build timestamp
         id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # ── Disk and storage setup ────────────────────────────────────────
       # Both steps must run before any podman call (BST uses rootful podman
@@ -256,7 +256,7 @@ jobs:
   # Disabled: webkit cold-builds OOM/timeout the ARM runner. Re-enable once
   # the webkit artifacts are cached in cache.projectbluefin.io.
   build-aarch64:
-    if: false
+    if: false # actionlint:ignore if-cond
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
     outputs:
@@ -287,7 +287,7 @@ jobs:
 
       - name: Capture build timestamp
         id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Generate BuildStream CI config
         env:
