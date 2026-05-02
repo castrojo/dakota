@@ -190,9 +190,14 @@ jobs:
         run: just lint
 
       - name: Login to GHCR
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | sudo podman login ghcr.io --username "$GH_ACTOR" --password-stdin
+          mkdir -p ~/.docker
+          echo "$GH_TOKEN" | podman login ghcr.io --username "$GH_ACTOR" --password-stdin \
+            --compat-auth-file ~/.docker/config.json
 
       - name: Push :$BUILD_SHA and capture digest
         id: push-sha
