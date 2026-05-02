@@ -12,9 +12,15 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Queue concurrent publishes — never cancel. Prevents :latest race and SBOM/signature conflicts.
+# Merge queue publishes get a per-SHA concurrency group — they only write :$BUILD_SHA
+# (no conflict possible). Everything else (schedule, dispatch, manual build dispatch)
+# stays on publish-main to prevent :latest races. Default-to-main ensures new triggers
+# are safe without explicit opt-in.
 concurrency:
-  group: publish-main
+  group: >-
+    ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'merge_group'
+        && format('publish-{0}', github.event.workflow_run.head_sha)
+        || 'publish-main' }}
   cancel-in-progress: false
 
 jobs:
