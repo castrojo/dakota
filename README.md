@@ -37,7 +37,6 @@ Some ISOs are duds, so here's an archive:
 | 2026-05-01 | [dakota-nvidia-live-20260501-c961e9c.iso](https://projectbluefin.dev/dakota-nvidia-live-20260501-c961e9c.iso) | [checksum](https://projectbluefin.dev/dakota-nvidia-live-20260501-c961e9c.iso-CHECKSUM) |
 | 2026-04-21 | [dakota-live-20260421-87f2aff.iso](https://projectbluefin.dev/dakota-live-20260421-87f2aff.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260421-87f2aff.iso-CHECKSUM) |
 | 2026-04-20 | [dakota-live-20260420-87f2aff.iso](https://projectbluefin.dev/dakota-live-20260420-87f2aff.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260420-87f2aff.iso-CHECKSUM) |
-| 2026-04-20 | [dakota-live-20260420-4a9f3d5.iso](https://projectbluefin.dev/dakota-live-20260420-4a9f3d5.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260420-4a9f3d5.iso-CHECKSUM) |
 <!-- iso-table-end -->
 
 ## Goals
