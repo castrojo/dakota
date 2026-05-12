@@ -44,14 +44,57 @@ DEFAULT_TARGET = "oci/layers/bluefin.bst"
 
 # Heuristic update-cadence hints keyed on element-name substrings.
 # First match wins; elements not matching any hint get "monthly".
+#
+# Order matters — more specific prefixes must appear before broader ones.
+# Evidence basis for each interval is in files/fakecap-manifest.tsv git log.
 INTERVAL_HINTS: list[tuple[str, str]] = [
-    ("bluefin/",            "weekly"),
-    ("gnome/gnome-shell",   "weekly"),
-    ("gnome/mutter",        "weekly"),
-    ("gnome/gdm",           "weekly"),
-    ("gnome/nautilus",      "weekly"),
-    ("gnome/",              "monthly"),
-    ("freedesktop-sdk",     "monthly"),
+    # ── bluefin-specific overrides (before the bluefin/ catchall) ────────────
+    # Fonts: quarterly (jetbrains-mono has ~4 commits ever)
+    ("bluefin/jetbrains-mono",          "quarterly"),
+    # Truly static bluefin elements (git history confirms very low churn)
+    ("bluefin/wallpapers",              "monthly"),   # ~4 commits/year
+    ("bluefin/uupd",                    "monthly"),   # 1 commit ever
+    # All other bluefin/* elements update weekly
+    ("bluefin/",                        "weekly"),
+
+    # ── GNOME shell components that track GNOME releases ─────────────────────
+    ("gnome/gnome-shell",               "weekly"),
+    ("gnome/mutter",                    "weekly"),
+    ("gnome/gdm",                       "weekly"),
+    ("gnome/nautilus",                  "weekly"),
+    ("gnome/",                          "monthly"),
+
+    # ── Firmware / microcode — update quarterly for security patches ─────────
+    ("linux-firmware",                  "quarterly"),
+    ("sof-firmware",                    "quarterly"),
+    ("intel-ucode",                     "quarterly"),
+    ("iucode-tool",                     "quarterly"),
+
+    # ── Container tooling — biweekly (actively developed, frequent releases) ──
+    ("gnomeos-deps/bootc",              "biweekly"),  # Dakota tracks ahead of upstream
+    ("components/buildstream2",         "biweekly"),
+    ("components/podman",               "biweekly"),
+    ("components/skopeo",               "biweekly"),
+
+    # ── Fonts — yearly (essentially static; changes only for new glyph coverage) ─
+    ("dejavu-fonts",                    "yearly"),
+    ("gnu-free-fonts",                  "yearly"),
+    ("liberation-fonts",                "yearly"),
+    ("noto-emoji",                      "yearly"),
+    ("tex-gyre-fonts",                  "yearly"),
+    ("noto-cjk",                        "yearly"),
+    ("adwaita-fonts",                   "yearly"),
+    ("cantarell-fonts",                 "yearly"),
+    ("google-crosextra",                "yearly"),   # caladea + carlito
+
+    # ── Bootstrap toolchain — yearly (appears as static files in the image) ──
+    # bootstrap/* elements produce /bin symlinks, manpages, etc. that never
+    # change between daily builds.  Isolating them prevents GNOME churn from
+    # invalidating 64 perfectly stable layers.
+    ("bootstrap/",                      "yearly"),
+
+    # ── freedesktop-sdk catch-all ─────────────────────────────────────────────
+    ("freedesktop-sdk",                 "monthly"),
 ]
 DEFAULT_INTERVAL = "monthly"
 
