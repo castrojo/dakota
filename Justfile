@@ -566,16 +566,21 @@ chunkify image_ref:
         echo "==> chunkah pull attempt $attempt failed, retrying in 10s..."
         [ "$attempt" -lt 3 ] && sleep 10
     done
+    MANIFEST_DIR="{{justfile_directory()}}/chunkah-manifests"
+    mkdir -p "$MANIFEST_DIR"
+    MANIFEST_FILE="$MANIFEST_DIR/chunkah-manifest-$(date +%Y%m%d-%H%M%S).json"
     LOADED=$($SUDO_CMD podman run --rm \
         --pull never \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
+        -v "${MANIFEST_DIR}:/chunkah-out" \
         -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
         "$CHUNKAH_REF" build --max-layers 120 --prune /sysroot/ \
         --label ostree.commit- --label ostree.final-diffid- \
-        --write-manifest-to /tmp/chunkah-manifest-$(date +%Y%m%d).json \
+        --write-manifest-to "/chunkah-out/$(basename $MANIFEST_FILE)" \
         | $SUDO_CMD podman load)
+    [ -f "$MANIFEST_FILE" ] && echo "==> chunkah manifest: $MANIFEST_FILE" || true
 
     echo "$LOADED"
 

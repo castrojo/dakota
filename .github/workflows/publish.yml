@@ -152,6 +152,15 @@ jobs:
           OCI_IMAGE_VERSION: latest
         run: just export ${{ matrix.variant }}
 
+      - name: Upload chunkah manifest
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chunkah-manifest-${{ matrix.variant }}-${{ steps.context.outputs.sha }}
+          path: chunkah-manifests/*.json
+          retention-days: 90
+          if-no-files-found: warn
+
       - name: Validate with bootc container lint
         env:
           BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}
