@@ -574,6 +574,7 @@ chunkify image_ref:
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
         "$CHUNKAH_REF" build --max-layers 120 --prune /sysroot/ \
         --label ostree.commit- --label ostree.final-diffid- \
+        --write-manifest-to /tmp/chunkah-manifest-$(date +%Y%m%d).json \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
