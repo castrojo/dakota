@@ -27,6 +27,8 @@ Some ISOs are duds, so here's an archive:
 <!-- iso-table-start -->
 | Date | ISO | Checksum |
 |------|-----|----------|
+| 2026-05-13 | [dakota-live-20260513-e8f35c6.iso](https://projectbluefin.dev/dakota-live-20260513-e8f35c6.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260513-e8f35c6.iso-CHECKSUM) |
+| 2026-05-13 | [dakota-nvidia-live-20260513-e8f35c6.iso](https://projectbluefin.dev/dakota-nvidia-live-20260513-e8f35c6.iso) | [checksum](https://projectbluefin.dev/dakota-nvidia-live-20260513-e8f35c6.iso-CHECKSUM) |
 | 2026-05-13 | [dakota-live-20260513-cf63d2d.iso](https://projectbluefin.dev/dakota-live-20260513-cf63d2d.iso) | [checksum](https://projectbluefin.dev/dakota-live-20260513-cf63d2d.iso-CHECKSUM) |
 | 2026-05-13 | [dakota-nvidia-live-20260513-cf63d2d.iso](https://projectbluefin.dev/dakota-nvidia-live-20260513-cf63d2d.iso) | [checksum](https://projectbluefin.dev/dakota-nvidia-live-20260513-cf63d2d.iso-CHECKSUM) |
 | 2026-05-12 | [dakota-nvidia-live-20260512-078c6a5.iso](https://projectbluefin.dev/dakota-nvidia-live-20260512-078c6a5.iso) | [checksum](https://projectbluefin.dev/dakota-nvidia-live-20260512-078c6a5.iso-CHECKSUM) |
