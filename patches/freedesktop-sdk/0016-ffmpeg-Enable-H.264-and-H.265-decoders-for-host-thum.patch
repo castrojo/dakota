@@ -1,0 +1,28 @@
+From 0db5bae982fd9330f1201cd51b9b1e71a41e29de Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Tue, 19 May 2026 20:55:37 -0400
+Subject: [PATCH] ffmpeg: Enable H.264 and H.265 decoders for host thumbnailing
+
+Remove --disable-decoder="h264,hevc,vc1,vvc" so that gstreamer-libav
+gains avdec_h264 and avdec_h265. Without these, the host
+gst-video-thumbnailer fails on every MP4 file (seeing only the audio
+stream) and GNOME Files cannot generate video thumbnails.
+
+The codecs-extra Flatpak extension already ships an ffmpeg-full with
+all decoders enabled; this change brings the host system to parity.
+---
+ elements/components/ffmpeg.bst | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/elements/components/ffmpeg.bst b/elements/components/ffmpeg.bst
+index 9bd3995..8821e4e 100644
+--- a/elements/components/ffmpeg.bst
++++ b/elements/components/ffmpeg.bst
+@@ -132,4 +132,3 @@ variables:
+   conf-extra: >-
+     --enable-encoder=%{encoders}
+     --enable-decoder=%{decoders}
+-    --disable-decoder="h264,hevc,vc1,vvc"
+-- 
+2.54.0
+
