@@ -1,0 +1,113 @@
+From 8c2ff60653b4c6454ed8572d9db0de2873b9d095 Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Tue, 19 May 2026 22:37:27 -0400
+Subject: [PATCH] gst-thumbnailers: add videoconvert for VA-API memory
+ compatibility
+
+gst-video-thumbnailer silently fails to produce thumbnails for H.264
+and H.265 video files when VA-API hardware decoders (vah264dec,
+vah265dec) are present. The thumbnailer pipeline connects uridecodebin3
+output directly to videoscale, but VA decoders emit
+video/x-raw(memory:VAMemory) which videoscale cannot accept.
+
+Carrier patch: add a videoconvert element before videoscale in
+get_video_thumbnail_source() to download VA-API memory frames to
+system RAM before scaling. No-op when no VA decoder is in use.
+
+Upstream report pending. Carried as a dakota local patch until
+gst-thumbnailers 1.0.1+ ships the fix upstream.
+---
+ elements/core/gst-thumbnailers.bst            |  2 +
+ ...-before-videoscale-for-VA-API-memory.patch | 67 +++++++++++++++++++
+ 2 files changed, 69 insertions(+)
+ create mode 100644 patches/gst-thumbnailers/0001-video-add-videoconvert-before-videoscale-for-VA-API-memory.patch
+
+diff --git a/elements/core/gst-thumbnailers.bst b/elements/core/gst-thumbnailers.bst
+index 324a0cfa..1df21173 100644
+--- a/elements/core/gst-thumbnailers.bst
++++ b/elements/core/gst-thumbnailers.bst
+@@ -4,6 +4,8 @@ sources:
+ - kind: tar
+   url: gnome_downloads:gst-thumbnailers/1.0/gst-thumbnailers-1.0.0.tar.xz
+   ref: f2a68019d319995d20a55cf0c32db1bb248834c2300ee757b417a5337d5d6497
++- kind: patch
++  path: patches/gst-thumbnailers/0001-video-add-videoconvert-before-videoscale-for-VA-API-memory.patch
+ - kind: cargo2
+   ref:
+   - kind: registry
+diff --git a/patches/gst-thumbnailers/0001-video-add-videoconvert-before-videoscale-for-VA-API-memory.patch b/patches/gst-thumbnailers/0001-video-add-videoconvert-before-videoscale-for-VA-API-memory.patch
+new file mode 100644
+index 00000000..4195ea90
+--- /dev/null
++++ b/patches/gst-thumbnailers/0001-video-add-videoconvert-before-videoscale-for-VA-API-memory.patch
+@@ -0,0 +1,67 @@
++From 2c8d696beb7aaab9417b32f420e7640ccf184b6f Mon Sep 17 00:00:00 2001
++From: "Jorge O. Castro" <jorge.castro@gmail.com>
++Date: Tue, 19 May 2026 22:37:02 -0400
++Subject: [PATCH] video: add videoconvert before videoscale for VA-API memory
++ compatibility
++MIME-Version: 1.0
++Content-Type: text/plain; charset=UTF-8
++Content-Transfer-Encoding: 8bit
++
++gst-video-thumbnailer fails on H.264/H.265 files when VA-API hardware
++decoders (vah264dec, vah265dec) are available. The root cause is that
++vah264dec outputs video/x-raw(memory:VAMemory) frames — GPU memory that
++videoscale (gst-plugins-base) cannot accept directly.
++
++Add an explicit videoconvert element before videoscale to download VA
++memory frames to system RAM before scaling. This mirrors the pattern
++used in manual gst-launch pipelines where the decode works correctly.
++
++The change is a no-op when no VA decoder is available (videoconvert
++passes system-memory frames through unchanged).
++
++Fixes: H.264 and H.265 thumbnails on Intel/AMD/NVIDIA hardware with
++VA-API support.
++---
++ src/lib.rs | 5 ++++-
++ 1 file changed, 4 insertions(+), 1 deletion(-)
++
++diff --git a/src/lib.rs b/src/lib.rs
++index 6e15cff..01544b4 100644
++--- a/src/lib.rs
+++++ b/src/lib.rs
++@@ -155,6 +155,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++         .build()?;
++ 
++     // Filters
+++    let videoconvert_va = gst::ElementFactory::make("videoconvert").build()?;
++     let videoscale = gst::ElementFactory::make("videoscale").build()?;
++     let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
++     let capsfilter = gst::ElementFactory::make("capsfilter").build()?;
++@@ -171,6 +172,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     pipeline.add_many([
++         &uridecodebin,
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -180,6 +182,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     // Static links
++     gst::Element::link_many([
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -263,7 +266,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++                 capsfilter.set_property("caps", caps);
++ 
++                 // Link source pad to sink of first filter
++-                let sink_pad = videoscale.static_pad("sink").unwrap();
+++                let sink_pad = videoconvert_va.static_pad("sink").unwrap();
++                 if !sink_pad.is_linked() {
++                     src_pad.link(&sink_pad).map_err(Error::other)?;
++                 }
++-- 
++2.54.0
++
+-- 
+2.53.0
+
