@@ -1,0 +1,112 @@
+From edd332bd8bfd2912e614e24cc4cd657a250c1845 Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Tue, 19 May 2026 23:46:20 -0400
+Subject: [PATCH] gst-thumbnailers: use uridecodebin (v2) for VA-API
+ compatibility
+
+uridecodebin3/decodebin3 fails at preroll when vah264dec/vah265dec
+emit video/x-raw(memory:VAMemory) without a static downstream connection.
+decodebin3 cannot bridge VA memory to system memory (vadownload absent).
+
+Switch to uridecodebin (v2) which uses decodebin (v2) and emits actual
+decoded caps at pad_added time. Also adds videoconvert as defense-in-depth.
+
+Carry until uridecodebin3 + VA memory is fixed upstream in gstreamer.
+---
+ elements/core/gst-thumbnailers.bst            |  2 +
+ ...se-uridecodebin-v2-for-VA-API-compat.patch | 70 +++++++++++++++++++
+ 2 files changed, 72 insertions(+)
+ create mode 100644 patches/gst-thumbnailers/0001-video-use-uridecodebin-v2-for-VA-API-compat.patch
+
+diff --git a/elements/core/gst-thumbnailers.bst b/elements/core/gst-thumbnailers.bst
+index 324a0cfa..494038ef 100644
+--- a/elements/core/gst-thumbnailers.bst
++++ b/elements/core/gst-thumbnailers.bst
+@@ -4,6 +4,8 @@ sources:
+ - kind: tar
+   url: gnome_downloads:gst-thumbnailers/1.0/gst-thumbnailers-1.0.0.tar.xz
+   ref: f2a68019d319995d20a55cf0c32db1bb248834c2300ee757b417a5337d5d6497
++- kind: patch
++  path: patches/gst-thumbnailers/0001-video-use-uridecodebin-v2-for-VA-API-compat.patch
+ - kind: cargo2
+   ref:
+   - kind: registry
+diff --git a/patches/gst-thumbnailers/0001-video-use-uridecodebin-v2-for-VA-API-compat.patch b/patches/gst-thumbnailers/0001-video-use-uridecodebin-v2-for-VA-API-compat.patch
+new file mode 100644
+index 00000000..cb30d3d9
+--- /dev/null
++++ b/patches/gst-thumbnailers/0001-video-use-uridecodebin-v2-for-VA-API-compat.patch
+@@ -0,0 +1,70 @@
++From aa1fbfbd83d41bb61e22634e7706e028bd58a54a Mon Sep 17 00:00:00 2001
++From: "Jorge O. Castro" <jorge.castro@gmail.com>
++Date: Tue, 19 May 2026 23:45:57 -0400
++Subject: [PATCH] video: use uridecodebin (v2) and add videoconvert for VA-API
++ compatibility
++
++GStreamer's decodebin3 (inside uridecodebin3) fails with VA-API hardware
++decoders (vah264dec, vah265dec) when the decoder output
++video/x-raw(memory:VAMemory) cannot be bridged to the downstream pipeline
++at pre-roll time. The bridge requires vadownload which is absent from
++the VA plugin.
++
++uridecodebin (v2) uses decodebin (v2) internally which emits decoded
++pads with actual caps after decode, allowing the downstream videoconvert
++to handle any memory type.
++
++Also adds videoconvert before videoscale as defense-in-depth (no-op for
++system-memory frames, downloads VA-memory frames to system RAM if needed).
++
++Carry until GStreamer resolves uridecodebin3 + VA memory without vadownload.
++---
++ src/lib.rs | 7 +++++--
++ 1 file changed, 5 insertions(+), 2 deletions(-)
++
++diff --git a/src/lib.rs b/src/lib.rs
++index 6e15cff..5d05f31 100644
++--- a/src/lib.rs
+++++ b/src/lib.rs
++@@ -150,11 +150,12 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++     let pipeline = Pipeline::new();
++ 
++     // Source
++-    let uridecodebin = gst::ElementFactory::make("uridecodebin3")
+++    let uridecodebin = gst::ElementFactory::make("uridecodebin")
++         .property("uri", input_uri)
++         .build()?;
++ 
++     // Filters
+++    let videoconvert_va = gst::ElementFactory::make("videoconvert").build()?;
++     let videoscale = gst::ElementFactory::make("videoscale").build()?;
++     let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
++     let capsfilter = gst::ElementFactory::make("capsfilter").build()?;
++@@ -171,6 +172,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     pipeline.add_many([
++         &uridecodebin,
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -180,6 +182,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     // Static links
++     gst::Element::link_many([
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -263,7 +266,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++                 capsfilter.set_property("caps", caps);
++ 
++                 // Link source pad to sink of first filter
++-                let sink_pad = videoscale.static_pad("sink").unwrap();
+++                let sink_pad = videoconvert_va.static_pad("sink").unwrap();
++                 if !sink_pad.is_linked() {
++                     src_pad.link(&sink_pad).map_err(Error::other)?;
++                 }
++-- 
++2.54.0
++
+-- 
+2.53.0
+
