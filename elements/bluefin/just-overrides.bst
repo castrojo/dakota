@@ -19,6 +19,7 @@ public:
     - /usr/share/ublue-os/just/changelog.just
     - /usr/share/ublue-os/just/system.just
     - /usr/share/ublue-os/just/otel/ujust-report-config.yaml
+    - /usr/share/ublue-os/just/update.just
 
 config:
   install-commands:
@@ -27,4 +28,5 @@ config:
   - install -Dm644 system.just "%{install-root}/usr/share/ublue-os/just/system.just"
   - install -Dm644 ujust-report-config.yaml "%{install-root}/usr/share/ublue-os/just/otel/ujust-report-config.yaml"
   - install -Dm644 flutter.just "%{install-root}/usr/share/ublue-os/just/flutter.just"
+  - install -Dm644 update.just "%{install-root}/usr/share/ublue-os/just/update.just"
   - "%{install-extra}"

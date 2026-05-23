@@ -20,10 +20,10 @@ bios:
 bios-info:
     #!/usr/bin/bash
     sudo bash <<'EOF'
-    echo "Manufacturer: $(dmidecode -s baseboard-manufacturer)"
-    echo "Product Name: $(dmidecode -s baseboard-product-name)"
-    echo "Version: $(dmidecode -s bios-version)"
-    echo "Release Date: $(dmidecode -s bios-release-date)"
+    echo "Manufacturer: $(/usr/sbin/dmidecode -s baseboard-manufacturer)"
+    echo "Product Name: $(/usr/sbin/dmidecode -s baseboard-product-name)"
+    echo "Version: $(/usr/sbin/dmidecode -s bios-version)"
+    echo "Release Date: $(/usr/sbin/dmidecode -s bios-release-date)"
     EOF
 
 clean-system:
