@@ -504,6 +504,11 @@ chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    if [ "${BUILD_SKIP_CHUNKIFY:-}" = "1" ]; then
+        echo "==> Skipping chunkify (BUILD_SKIP_CHUNKIFY=1)"
+        exit 0
+    fi
+
     # Use sudo unless already root (CI runners are root)
     SUDO_CMD=""
     if [ "$(id -u)" -ne 0 ]; then
