@@ -19,5 +19,6 @@ config:
   install-commands:
   - install -Dm644 ublue-firstboot-date.service "%{install-root}/usr/lib/systemd/system/ublue-firstboot-date.service"
   - install -Dm644 fastfetch.jsonc "%{install-root}/usr/share/ublue-os/fastfetch.jsonc"
+  - mkdir -p "%{install-root}/usr/lib/systemd/system/multi-user.target.wants/"
   - ln -sf ../ublue-firstboot-date.service "%{install-root}/usr/lib/systemd/system/multi-user.target.wants/ublue-firstboot-date.service"
   - "%{install-extra}"
