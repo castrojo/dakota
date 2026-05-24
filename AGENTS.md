@@ -240,7 +240,7 @@ pre-approved once `validate` passes. See issue #501 for the auto-merge roadmap.
 | `kind:improvement` | Enhancement or cleanup — no spec required for small items. |
 | `kind:tech-debt` | Cleanup with no user-visible change. |
 | `kind:github-action` | CI or automation changes. |
-| `human-needed/agent-oops` | An agent made a mistake here — wrong assumption, bad output, filed a spurious issue, broke something. This label builds a learning corpus. |
+| `needs-human/agent-oops` | An agent made a mistake here — wrong assumption, bad output, filed a spurious issue, broke something. This label builds a learning corpus. |
 
 ### `needs-human/agent-ready` - how to use it
 
@@ -251,10 +251,10 @@ When you see this label on an issue:
 4. Open a PR with `Closes #NNN` in the body
 5. CI `validate` must pass
 
-### `human-needed/agent-oops` — how to use it
+### `needs-human/agent-oops` — how to use it
 
 When an agent makes an error:
-- A maintainer adds `human-needed/agent-oops` to the relevant issue or PR
+- A maintainer adds `needs-human/agent-oops` to the relevant issue or PR
 - Do **not** remove this label — it is intentional signal
 - If you are the agent that made the error, note what went wrong in your response to the maintainer (so the pattern can be captured in agent skill files)
 - Examples: filed a duplicate issue, proposed a fix for something already upstream, broke a patch apply, failed to check hardware after a build
