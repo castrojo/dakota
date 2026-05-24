@@ -50,7 +50,7 @@ This is in the pull request template: `[ ] I am using an agent and I take respon
 **The `Justfile` is the single, canonical source of truth for all maintenance tasks.**
 
 * **No "Loose" Commands:** Agents are strictly forbidden from suggesting or using shell commands that are not encapsulated within the `Justfile`.
-* **Current exception:** Until `just validate` is added (tracked in issue #506), element graph validation is run as: `BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin.bst`. This is the only permitted loose command and only until the recipe exists.
+* **Validation:** Use `just validate` to check the full element graph before any PR (closes #506). This mirrors the CI validate job exactly — bst2 pin check + `bst show` for both default and nvidia variants.
 * **Gap Closure:** If an agent identifies a maintenance task, setup step, or deployment requirement not currently covered by a `just` recipe, the agent **MUST** submit a PR to update the `Justfile` before or alongside the feature code.
 * **Determinism:** All recipes added by agents must be idempotent and deterministic.
 

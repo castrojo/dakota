@@ -45,6 +45,47 @@ bst *ARGS:
         "{{bst2_image}}" \
         bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
 
+# Validate BST element graph — mirrors the CI validate job exactly.
+# Checks both default and nvidia variants without building anything.
+# Run this before opening any PR to catch element graph errors early.
+#
+# Also verifies the bst2 container image SHA is consistent between
+# the Justfile and .github/workflows/track-bst-sources.yml (same
+# check CI runs on every pull_request).
+#
+# Usage: just validate
+[group('dev')]
+validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "==> Checking bst2 image pin consistency..."
+    just_sha="$(grep -oE 'bst2:[a-f0-9]{40}' Justfile | cut -d: -f2)"
+    track_sha="$(grep -oE 'bst2:[a-f0-9]{40}' .github/workflows/track-bst-sources.yml | cut -d: -f2)"
+    if [[ -z "$just_sha" || -z "$track_sha" ]]; then
+        echo "ERROR: could not find bst2 SHA (Justfile: '${just_sha:-missing}', track-bst-sources.yml: '${track_sha:-missing}')"
+        exit 1
+    fi
+    [[ "$just_sha" == "$track_sha" ]] || {
+        echo "ERROR: bst2 pin drift"
+        echo "  Justfile:              $just_sha"
+        echo "  track-bst-sources.yml: $track_sha"
+        echo "  Run: just bst to see the correct SHA, then update both files."
+        exit 1
+    }
+    echo "OK: bst2 pins consistent: $just_sha"
+    echo ""
+
+    echo "==> Validating BST element graph (default)..."
+    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin.bst
+    echo ""
+
+    echo "==> Validating BST element graph (nvidia)..."
+    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin-nvidia.bst
+    echo ""
+
+    echo "==> Validation passed."
+
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
 #
@@ -808,3 +849,60 @@ lint:
     $SUDO_CMD podman run --rm --privileged --pull=never \
         "{{image_name}}:{{image_tag}}" \
         bootc container lint
+
+# ── Lint patches ────────────────────────────────────────────────────
+# Check all patch files in patches/ for required Upstream-Status header.
+# Valid values: Submitted | Accepted | Pending | Not-applicable
+#
+# Run this before committing new patches. It is informational and does
+# not block the build — the goal is to keep patch debt visible.
+#
+# Usage: just lint-patches
+[group('test')]
+lint-patches:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    VALID_STATUSES='Submitted|Accepted|Pending|Not-applicable'
+    FAIL=0
+    TOTAL=0
+    MISSING=()
+    INVALID=()
+
+    while IFS= read -r -d '' patch; do
+        TOTAL=$((TOTAL + 1))
+        # Extract the Upstream-Status value (first occurrence)
+        status="$(grep -m1 'Upstream-Status:' "$patch" | sed 's/.*Upstream-Status:[[:space:]]*//' | tr -d '\r\n' || true)"
+        if [[ -z "$status" ]]; then
+            MISSING+=("$patch")
+            FAIL=1
+        elif ! echo "$status" | grep -qE "^(${VALID_STATUSES})"; then
+            INVALID+=("$patch: '$status'")
+            FAIL=1
+        fi
+    done < <(find patches/ -name '*.patch' -print0 | sort -z)
+
+    echo "==> Patch lint results ($TOTAL patches checked)"
+    echo ""
+
+    if [[ ${#MISSING[@]} -gt 0 ]]; then
+        echo "MISSING Upstream-Status (${#MISSING[@]}):";
+        printf '  %s\n' "${MISSING[@]}"
+        echo ""
+    fi
+
+    if [[ ${#INVALID[@]} -gt 0 ]]; then
+        echo "INVALID Upstream-Status (${#INVALID[@]}):";
+        printf '  %s\n' "${INVALID[@]}"
+        echo "  Valid values: Submitted | Accepted | Pending | Not-applicable"
+        echo ""
+    fi
+
+    if [[ $FAIL -eq 0 ]]; then
+        echo "PASS: all patches have a valid Upstream-Status header."
+    else
+        echo "ACTION: Add an Upstream-Status header to each patch listed above."
+        echo "  See: AGENTS.md \"Patch additions or removals\" checklist."
+    fi
+    # Exit 0 always — informational, not a gate.
+    exit 0

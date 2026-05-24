@@ -64,6 +64,40 @@ jobs:
         with:
           tool: just
 
+      # ── Static analysis ────────────────────────────────────────────────
+      # Run actionlint + shellcheck on all workflow YAML. This catches
+      # type errors, expression mistakes, and embedded shell bugs before
+      # the full BST graph traversal runs.
+      - name: Install actionlint
+        uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2
+        with:
+          tool: actionlint
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint -config-file .github/actionlint.yaml
+
+      # ── Patch structure check ──────────────────────────────────────────
+      # Warn (non-fatal) when patches are missing an Upstream-Status header.
+      # Prints a summary but does not fail the job — run `just lint-patches`
+      # locally to see the full list and fix before opening a PR.
+      - name: Check patch Upstream-Status headers
+        run: |
+          VALID='Submitted|Accepted|Pending|Not-applicable'
+          MISSING=()
+          while IFS= read -r -d '' patch; do
+            status="$(grep -m1 'Upstream-Status:' "$patch" | sed 's/.*Upstream-Status:[[:space:]]*//' | tr -d '\r\n' || true)"
+            if [[ -z "$status" ]] || ! echo "$status" | grep -qE "^(${VALID})"; then
+              MISSING+=("$patch")
+            fi
+          done < <(find patches/ -name '*.patch' -print0 | sort -z)
+          total=$(find patches/ -name '*.patch' | wc -l)
+          echo "Patch lint: $((total - ${#MISSING[@]}))/${total} patches have a valid Upstream-Status header."
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "Missing or invalid Upstream-Status (${#MISSING[@]}):"
+            printf '  %s\n' "${MISSING[@]}"
+            echo "Run: just lint-patches  to see full details"
+          fi
+
       # Cache the BST workspace (junction git sources + bst2 container layers).
       # Key includes junction element refs so junction bumps start fresh.
       # Without this, bst show must clone gnome-build-meta + freedesktop-sdk
