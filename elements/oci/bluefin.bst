@@ -51,6 +51,20 @@ config:
       dconf update /layer/etc/dconf/db
 
     - |
+      # Rebuild the shared library linker cache for the sysroot.
+      # Without this, any SO version bump (e.g. Mesa libgallium, Pipewire)
+      # leaves /etc/ld.so.cache stale after a `bootc switch`. The stale
+      # cache causes dlopen() failures for the new SO name — silently
+      # breaking the component on first boot with no obvious error.
+      #
+      # Reproducer: PR #497 junction bump Mesa 26.0.5 → 26.0.6 caused
+      # GNOME Shell "No GPUs found" boot loop (GDM never started).
+      # Root cause: dri_gbm.so has no RPATH and relied on the linker
+      # cache to find libgallium-26.0.6.so, which was not yet in
+      # /etc/ld.so.cache on the deployed system.
+      ldconfig -r /layer
+
+    - |
       cd "%{install-root}"
       build-oci <<EOF
       mode: oci
