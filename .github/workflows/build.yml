@@ -380,6 +380,10 @@ jobs:
 
           if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
             cat >> buildstream-ci.conf <<'BSTCONFPUSH'
+          build:
+            retry-failed: True
+            max-jobs: 32
+
           artifacts:
             servers:
             - url: https://cache.projectbluefin.io:11002
@@ -418,10 +422,27 @@ jobs:
                 client-key: /src/client.key
                 client-cert: /src/client.crt
 
-          # remote-execution is intentionally omitted for aarch64:
-          # cache.projectbluefin.io only has x86_64 workers and rejects
-          # aarch64 jobs with "Unsupported ISA aarch64". Builds run locally
-          # on the ubuntu-24.04-arm runner; artifacts are still cached.
+          remote-execution:
+            execution-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 180
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
+            action-cache-service:
+              url: https://cache.projectbluefin.io:11002
+              connection-config:
+                keepalive-time: 180
+                retry-limit: 5
+                retry-delay: 1000
+                request-timeout: 180
+              auth:
+                client-key: /src/client.key
+                client-cert: /src/client.crt
           BSTCONFPUSH
           fi
 
