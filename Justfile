@@ -8,6 +8,7 @@ export image_name := env("BUILD_IMAGE_NAME", "dakota")
 export image_tag := env("BUILD_IMAGE_TAG", "latest")
 export base_dir := env("BUILD_BASE_DIR", ".")
 export filesystem := env("BUILD_FILESYSTEM", "btrfs")
+export local_registry := env("LOCAL_REGISTRY", "localhost:5000")
 
 # Same bst2 container image CI uses -- pinned by SHA for reproducibility
 export bst2_image := env("BST2_IMAGE", "registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d")
@@ -63,8 +64,12 @@ bst *ARGS:
 # Validate BST element graph — mirrors CI validate job.
 [group('dev')]
 validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
     just bst show --deps all oci/bluefin.bst
-    just bst show --deps all oci/bluefin-nvidia.bst
+    if [ "${BUILD_SKIP_NVIDIA:-}" != "1" ]; then
+        just bst show --deps all oci/bluefin-nvidia.bst
+    fi
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
@@ -181,6 +186,21 @@ clean:
 [group('build')]
 build-containerfile $image_name=image_name:
     sudo podman build --security-opt label=type:unconfined_t --squash-all -t "${image_name}:latest" .
+
+# Push the exported local image to an insecure lab/dev registry.
+[group('build')]
+push-local tag="{{image_tag}}" source_ref="{{image_name}}:{{image_tag}}":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    TARGET_REF="{{local_registry}}/{{image_name}}:{{tag}}"
+    echo "==> Pushing {{source_ref}} -> ${TARGET_REF}"
+    $SUDO_CMD podman push --tls-verify=false "{{source_ref}}" "${TARGET_REF}"
 
 # ── bootc helper ─────────────────────────────────────────────────────
 [group('dev')]
@@ -523,6 +543,7 @@ show-me-the-future:
 # the overlay + xattr-apply step can be removed. chunkah can then be run
 # with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
 # See also: projectbluefin/dakota#231.
+[group('build')]
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail

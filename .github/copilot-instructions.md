@@ -12,14 +12,19 @@
 just bst build oci/bluefin.bst   # full image build (inside bst2 container)
 just build                        # alias for the above
 just export                       # export OCI image from BST into podman
+just push-local                   # push the exported image to a local lab registry
+just validate                     # validate the default + nvidia graphs before building
 just lint                         # bootc container lint (requires exported image)
 just bst show oci/bluefin.bst     # inspect element dependency graph
 ```
 
-Builds run inside the pinned `bst2` container. `BST_FLAGS` env var injects flags:
+Builds run inside the pinned `bst2` container. `just bst` defaults to the same
+`x86_64_v3` + `--no-interactive` profile used by local/lab x86_64 builds, and
+`BST_FLAGS` can still add CI-only overrides such as `--config`:
 
 ```bash
-just bst build oci/bluefin.bst
+just validate
+BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" just bst build oci/bluefin.bst
 ```
 
 ## ⚠️ Hard rules (learned from real mistakes)
