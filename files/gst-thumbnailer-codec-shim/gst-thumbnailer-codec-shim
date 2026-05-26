@@ -1,0 +1,17 @@
+#!/bin/sh
+# Shim that injects Flatpak ffmpeg-full codecs into the host GStreamer thumbnailer.
+# Finds the active ffmpeg-full extension directory at runtime (path includes a commit hash).
+# Falls back gracefully to the stock thumbnailer if ffmpeg-full is not installed.
+
+FFMPEG_FULL_BASE="/var/lib/flatpak/runtime/org.freedesktop.Platform.ffmpeg-full"
+
+# Find most recent active installation (any arch, any branch)
+FFMPEG_FULL_DIR=$(find "$FFMPEG_FULL_BASE" -maxdepth 4 -name "lib" -type d 2>/dev/null | head -1)
+
+if [ -n "$FFMPEG_FULL_DIR" ]; then
+  export LD_LIBRARY_PATH="$FFMPEG_FULL_DIR:${LD_LIBRARY_PATH:-}"
+  # Force GStreamer to rescan plugins so it discovers the full-codec libavcodec
+  export GST_REGISTRY=/tmp/gst-thumbnailer-codec-shim-registry-$(id -u).bin
+fi
+
+exec /usr/bin/gst-video-thumbnailer "$@"
