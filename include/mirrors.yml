@@ -1,0 +1,15 @@
+# Source mirrors for build reliability.
+# BST tries these in order when primary source fetch fails.
+# Format matches freedesktop-sdk's mirrors.yml convention.
+
+mirrors:
+- name: dakota-git-mirrors
+  aliases:
+    github:
+    - https://gitlab.com/freedesktop-sdk/mirrors/github/
+    gnome:
+    - https://gitlab.com/freedesktop-sdk/mirrors/gnome/
+    freedesktop:
+    - https://gitlab.com/freedesktop-sdk/mirrors/freedesktop/
+    kernel:
+    - https://gitlab.com/freedesktop-sdk/mirrors/kernel/
