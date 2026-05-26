@@ -193,14 +193,21 @@ push-local tag="{{image_tag}}" source_ref="{{image_name}}:{{image_tag}}":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    SUDO_CMD=""
-    if [ "$(id -u)" -ne 0 ]; then
-        SUDO_CMD="sudo"
+    PODMAN=(podman)
+    if ! podman image exists "{{source_ref}}" >/dev/null 2>&1; then
+        if [ "$(id -u)" -eq 0 ]; then
+            :
+        elif sudo -n podman image exists "{{source_ref}}" >/dev/null 2>&1; then
+            PODMAN=(sudo podman)
+        else
+            echo "ERROR: {{source_ref}} not found in the rootless podman store, and passwordless sudo is unavailable for the system store." >&2
+            exit 1
+        fi
     fi
 
     TARGET_REF="{{local_registry}}/{{image_name}}:{{tag}}"
     echo "==> Pushing {{source_ref}} -> ${TARGET_REF}"
-    $SUDO_CMD podman push --tls-verify=false "{{source_ref}}" "${TARGET_REF}"
+    "${PODMAN[@]}" push --tls-verify=false "{{source_ref}}" "${TARGET_REF}"
 
 # ── bootc helper ─────────────────────────────────────────────────────
 [group('dev')]
