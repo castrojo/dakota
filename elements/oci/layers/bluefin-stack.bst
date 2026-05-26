@@ -39,3 +39,8 @@ public:
       - ln -s ../../var/usrlocal usr/local
 
       - touch /etc/machine-id
+
+      # Build-time desktop validation — catch broken configs before publish
+      - glib-compile-schemas --strict /usr/share/glib-2.0/schemas/
+      - test -L /home && test -L /root && test -L /opt
+      - test -d /usr/share/gnome-shell/extensions/caffeine@patapon.info
