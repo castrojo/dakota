@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=/usr/lib/bluefin/gst-thumbnailer-codec-shim
+Exec=/usr/lib/bluefin/gst-thumbnailer-codec-shim --input-uri %u --output %o --size %s
+MimeType=video/3gp;video/3gpp;video/3gpp2;video/mp4;video/mp4v-es;video/mpeg;video/quicktime;video/x-m4v;video/x-matroska;video/x-msvideo;video/webm;video/x-ms-wmv;video/x-flv;video/ogg;video/dv;
