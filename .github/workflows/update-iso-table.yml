@@ -27,7 +27,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'EOF'
-          import subprocess, json, sys, re
+          import subprocess, json, sys, re, urllib.request, urllib.error
+
+          def url_exists(url: str) -> bool:
+              req = urllib.request.Request(url, method='HEAD')
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      return 200 <= resp.status < 400
+              except urllib.error.HTTPError as err:
+                  if err.code != 405:
+                      return False
+              except Exception:
+                  return False
+
+              try:
+                  with urllib.request.urlopen(url, timeout=10) as resp:
+                      return 200 <= resp.status < 400
+              except Exception:
+                  return False
 
           # Fetch last 100 runs from upstream dakota-iso
           result = subprocess.run(
@@ -56,14 +73,20 @@ jobs:
                    if a['name'].endswith('.iso') and not a['name'].startswith('checksum')),
                   None
               )
-              if not iso or iso['name'] in seen_names:
+              if not iso:
                   continue
-              seen_names.add(iso['name'])
-
               name = iso['name']          # dakota-live-YYYYMMDD-<sha>.iso
+              if name in seen_names:
+                  continue
+
               date = run['createdAt'][:10]
               base = f"https://projectbluefin.dev/{name}"
               cksum = f"https://projectbluefin.dev/{name}-CHECKSUM"
+              if not (url_exists(base) and url_exists(cksum)):
+                  print(f"Skipping broken archive entry: {name}")
+                  continue
+
+              seen_names.add(name)
               rows.append(
                   f"| {date} | [{name}]({base}) | [checksum]({cksum}) |"
               )

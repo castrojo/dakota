@@ -23,7 +23,9 @@ export OCI_IMAGE_VERSION := env("OCI_IMAGE_VERSION", "latest")
 
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
-# Set BST_FLAGS env var to prepend flags (e.g. --no-interactive --config ...).
+# Defaults to `-o x86_64_v3 true` so local runs match CI's graph selection.
+# Set BST_FLAGS to append flags (e.g. --no-interactive --config ...).
+# Set BST_FLAGS_OVERRIDE to replace all default/appended flags.
 # Usage: just bst build oci/bluefin.bst
 #        just bst show oci/bluefin.bst
 #        BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
@@ -32,7 +34,16 @@ bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
-    # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
+    # CI may pass the full flag set; avoid duplicating x86_64_v3 if already present.
+    if [ -n "${BST_FLAGS_OVERRIDE:-}" ]; then
+        EFFECTIVE_BST_FLAGS="${BST_FLAGS_OVERRIDE}"
+    elif [[ "${BST_FLAGS:-}" =~ (^|[[:space:]])-o[[:space:]]+x86_64_v3[[:space:]]+true($|[[:space:]]) ]]; then
+        EFFECTIVE_BST_FLAGS="${BST_FLAGS}"
+    else
+        EFFECTIVE_BST_FLAGS="-o x86_64_v3 true ${BST_FLAGS:-}"
+    fi
+
+    # BST_FLAGS allows appending --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
     podman run --rm \
@@ -43,7 +54,13 @@ bst *ARGS:
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
-        bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
+        bash -c 'bst --colors "$@"' -- ${EFFECTIVE_BST_FLAGS} {{ARGS}}
+
+# Validate BST element graph — mirrors CI validate job.
+[group('dev')]
+validate:
+    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin.bst
+    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin-nvidia.bst
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
@@ -504,6 +521,7 @@ show-me-the-future:
 # the overlay + xattr-apply step can be removed. chunkah can then be run
 # with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
 # See also: projectbluefin/dakota#231.
+[group('build')]
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail

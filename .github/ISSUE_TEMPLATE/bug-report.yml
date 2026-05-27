@@ -1,0 +1,103 @@
+name: "Bug report"
+description: "Something is broken. Let's fix it together."
+labels: ["kind/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a bug? Let's squash it. 🐛
+        Write this in your own words — no AI-generated text for the top sections.
+        If you opt into **Raptor Current**, `actionadon` will open the community workflow for you. Otherwise this stays a normal issue.
+
+  - type: dropdown
+    id: workflow_path
+    attributes:
+      label: "Workflow path"
+      description: "Choose the lighter direct path, or opt into Raptor Current for discussion → approval → wrangler queue → agent claim."
+      options:
+        - "Direct issue (skip workflow)"
+        - "Raptor Current (community + wrangler + agent queue)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: "What happened?"
+      description: "What did you see? What did you expect to see?"
+      placeholder: |
+        Running `just export` always runs chunkify even when I'm just doing a local test build.
+        Expected: chunkify should be skippable for local builds.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: "Steps to reproduce"
+      description: "Minimal steps to hit the bug. Include commands, environment, and any flags."
+      placeholder: |
+        1. `just build`
+        2. `just export`
+        3. Observe: chunkify runs unconditionally
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Output of `bootc status` (if booted into dakota), OS, relevant tool versions."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Affected area"
+      multiple: true
+      options:
+        - "area/buildstream"
+        - "area/gnome"
+        - "area/brew"
+        - "area/just"
+        - "area/iso"
+        - "area/dx"
+        - "area/services"
+        - "area/flatpak"
+        - "area/nvidia"
+        - "area/hardware"
+        - "area/testing"
+        - "area/upstream"
+        - "area/policy"
+        - "other"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### 📋 Acceptance criteria
+        *Maintainers fill this in when approving. Agents use this as their spec.*
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "Acceptance criteria"
+      description: "Filled in by a maintainer. Leave blank when filing."
+      placeholder: |
+        - [ ] `just export` does not call chunkify unless `BUILD_SKIP_CHUNKIFY` is unset
+        - [ ] `BUILD_SKIP_CHUNKIFY=1 just export` skips chunkify and exits cleanly
+        - [ ] `just validate` passes after the fix
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: affected_elements
+    attributes:
+      label: "Affected BST elements or files (if known)"
+      placeholder: "Justfile, elements/oci/bluefin.bst"
+    validations:
+      required: false

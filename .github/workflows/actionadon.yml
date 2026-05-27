@@ -1,0 +1,319 @@
+name: actionadon
+
+# actionadon — Dakota's community next-action bot.
+# Posts one short comment each time an issue moves to a new lifecycle stage.
+# Handles /claim, /unclaim, and /ready. Sweeps stale claimed issues daily.
+#
+# Lifecycle:
+#   opened → status/discussing
+#   status/approved (maintainer) → needs spec comment
+#   needs-human/agent-ready (maintainer) → queue announcement
+#   /claim comment → agent/claimed + assigned
+#   /ready comment (wrangler) → queued for agents
+#   /unclaim comment → back in queue
+#   daily sweep → unclaim issues idle > 7 days
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '0 9 * * *'
+
+permissions:
+  issues: write
+  contents: read
+
+env:
+  WORKFLOW_NAME: "Raptor Current"
+  # Maintainers are implicit wranglers via their repo permissions.
+  # This list is for additional low-barrier operators who can steer the queue.
+  # Keep this list in sync with AGENTS.md and files/hive/hive-project.yaml.example.
+  WRANGLERS: "castrojo,ahmedadan,alatiera,hanthor,coxde,renner0e"
+
+jobs:
+  # ── Ensure lifecycle labels exist ─────────────────────────────────────────
+  # Idempotent. Runs before any job that writes labels.
+  ensure-labels:
+    if: >-
+      github.event_name == 'issues' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request == null &&
+       (startsWith(github.event.comment.body, '/claim') ||
+        startsWith(github.event.comment.body, '/unclaim') ||
+        startsWith(github.event.comment.body, '/ready')))
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create lifecycle labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          label() {
+            gh label create "$1" --color "$2" --description "$3" --repo "$REPO" 2>/dev/null \
+              || gh label edit "$1" --color "$2" --description "$3" --repo "$REPO" 2>/dev/null \
+              || true
+          }
+          label "status/discussing" "7c83fd" "Community discussion underway"
+          label "status/approved"   "2ea44f" "Maintainer consensus reached — needs acceptance criteria"
+          label "agent/claimed"     "e8b86d" "Someone is actively working this"
+          label "agent/blocked"     "e74c3c" "Work stalled — needs human help"
+
+  # ── New issue opened ───────────────────────────────────────────────────────
+  on-issue-opened:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    needs: ensure-labels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Detect Raptor Current opt-in
+        id: workflow
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          WORKFLOW_NAME: ${{ env.WORKFLOW_NAME }}
+        run: |
+          if printf '%s\n' "$ISSUE_BODY" | grep -Fq "$WORKFLOW_NAME"; then
+            echo "opted_in=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "opted_in=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Label as discussing
+        if: steps.workflow.outputs.opted_in == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: gh issue edit "$ISSUE_URL" --add-label "status/discussing"
+
+      - name: Welcome comment
+        if: steps.workflow.outputs.opted_in == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          WORKFLOW_NAME: ${{ env.WORKFLOW_NAME }}
+        run: |
+          cat << EOF > /tmp/comment.md
+          👋 A new chapter begins — thanks for bringing this to Dakota!
+
+          You opted into **${WORKFLOW_NAME}**.
+
+          **Community:** discuss below. Does this fit Bluefin's direction? A 👍 goes a long way.
+
+          **Maintainers:** when there's consensus, add `status/approved` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+  # ── Label transitions ──────────────────────────────────────────────────────
+  on-labeled:
+    if: github.event_name == 'issues' && github.event.action == 'labeled'
+    needs: ensure-labels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Comment on status/approved
+        if: github.event.label.name == 'status/approved'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          cat << 'EOF' > /tmp/comment.md
+          ✅ Approved. The community has found its way here.
+
+          Before this goes to the build queue it needs **acceptance criteria** — the spec a contributor or agent will implement against. Add it to the issue body, then apply `needs-human/agent-ready` to open it up.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+      - name: Comment on needs-human/agent-ready
+        if: github.event.label.name == 'needs-human/agent-ready'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat << 'EOF' > /tmp/comment.md
+          🐟 In the queue! This issue has a spec and is ready to build.
+
+          Comment `/claim` to take it. Wranglers can use `/ready` to move a spec-complete issue into the queue. Read [AGENTS.md](../../blob/main/AGENTS.md) first — it covers branching from `upstream/main`, running `just validate`, and the PR checklist.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+  # ── /claim, /unclaim, and /ready ──────────────────────────────────────────
+  claim-handler:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      (startsWith(github.event.comment.body, '/claim') ||
+       startsWith(github.event.comment.body, '/unclaim') ||
+       startsWith(github.event.comment.body, '/ready'))
+    needs: ensure-labels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve wrangler status
+        id: wrangler
+        env:
+          COMMENTER: ${{ github.event.comment.user.login }}
+          WRANGLERS: ${{ env.WRANGLERS }}
+        run: |
+          IS_WRANGLER=false
+          for user in $(echo "$WRANGLERS" | tr ',' ' '); do
+            if [ "$COMMENTER" = "$user" ]; then
+              IS_WRANGLER=true
+              break
+            fi
+          done
+          echo "is_wrangler=$IS_WRANGLER" >> "$GITHUB_OUTPUT"
+
+      - name: Handle /claim
+        if: startsWith(github.event.comment.body, '/claim')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          LABELS=$(gh issue view "$ISSUE_URL" --json labels --jq '[.labels[].name] | join(",")')
+
+          # Already claimed
+          if echo "$LABELS" | grep -q "agent/claimed"; then
+            ASSIGNEE=$(gh issue view "$ISSUE_URL" --json assignees --jq '.assignees[0].login // "someone"')
+            cat << EOF > /tmp/comment.md
+          Already claimed by @${ASSIGNEE}. If they've gone quiet, a maintainer can \`/unclaim\` to return it to the queue.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          # Not in queue
+          if ! echo "$LABELS" | grep -q "needs-human/agent-ready"; then
+            cat << 'EOF' > /tmp/comment.md
+          This issue isn't in the agent queue yet — it needs `needs-human/agent-ready` before it can be claimed.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          gh issue edit "$ISSUE_URL" --add-label "agent/claimed" --add-assignee "$COMMENTER"
+          cat << EOF > /tmp/comment.md
+          🎣 @${COMMENTER} has this one! Open a PR with \`Closes #${ISSUE_NUMBER}\` in the description when ready. Hit a blocker? Add \`agent/blocked\` and describe what you need.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+      - name: Handle /ready
+        if: startsWith(github.event.comment.body, '/ready')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          IS_WRANGLER: ${{ steps.wrangler.outputs.is_wrangler }}
+          REPO: ${{ github.repository }}
+        run: |
+          PERMISSION=$(gh api "repos/${REPO}/collaborators/${COMMENTER}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+          HAS_WRITE=false
+          case "$PERMISSION" in admin|maintain|write) HAS_WRITE=true ;; esac
+
+          if [ "$IS_WRANGLER" != "true" ] && [ "$HAS_WRITE" = "false" ]; then
+            cat << 'EOF' > /tmp/comment.md
+          Only a wrangler or maintainer can move an issue into the queue with `/ready`.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          LABELS=$(gh issue view "$ISSUE_URL" --json labels --jq '[.labels[].name] | join(",")')
+          BODY=$(gh issue view "$ISSUE_URL" --json body --jq '.body // ""')
+
+          if ! echo "$LABELS" | grep -q "status/approved"; then
+            cat << 'EOF' > /tmp/comment.md
+          This issue needs `status/approved` before it can enter the queue.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          if ! echo "$BODY" | grep -qi "acceptance criteria"; then
+            cat << 'EOF' > /tmp/comment.md
+          This issue still needs acceptance criteria in the body before it can enter the queue.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          gh issue edit "$ISSUE_URL" --add-label "needs-human/agent-ready"
+          cat << EOF > /tmp/comment.md
+          🧭 Queued by wrangler @${COMMENTER}. This one is ready for a human or agent to `/claim`.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+      - name: Handle /unclaim
+        if: startsWith(github.event.comment.body, '/unclaim')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          REPO: ${{ github.repository }}
+          IS_WRANGLER: ${{ steps.wrangler.outputs.is_wrangler }}
+        run: |
+          ASSIGNEE=$(gh issue view "$ISSUE_URL" --json assignees --jq '.assignees[0].login // ""')
+
+          # Allow assignee, wrangler, or repo collaborators with write+ to unclaim
+          PERMISSION=$(gh api "repos/${REPO}/collaborators/${COMMENTER}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+          HAS_WRITE=false
+          case "$PERMISSION" in admin|maintain|write) HAS_WRITE=true ;; esac
+
+          if [ "$COMMENTER" != "$ASSIGNEE" ] && [ "$HAS_WRITE" = "false" ] && [ "$IS_WRANGLER" != "true" ]; then
+            cat << EOF > /tmp/comment.md
+          Only @${ASSIGNEE}, a wrangler, or a maintainer can unclaim this issue.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          gh issue edit "$ISSUE_URL" --remove-label "agent/claimed"
+          if [ -n "$ASSIGNEE" ]; then
+            gh issue edit "$ISSUE_URL" --remove-assignee "$ASSIGNEE"
+          fi
+          cat << 'EOF' > /tmp/comment.md
+          Back in the queue. Anyone can `/claim` it.
+          EOF
+          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+
+  # ── Stale claim sweep ──────────────────────────────────────────────────────
+  # Daily: find claimed issues with no update in 7 days, return to queue.
+  stale-claim-sweep:
+    if: github.event_name == 'schedule'
+    needs: ensure-labels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Unclaim stale issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          CUTOFF=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
+
+          gh issue list --repo "$REPO" \
+            --label "agent/claimed" \
+            --json number,url,updatedAt,assignees \
+            --jq ".[] | select(.updatedAt < \"$CUTOFF\") | .number" \
+          | while read -r NUMBER; do
+              URL="https://github.com/${REPO}/issues/${NUMBER}"
+              ASSIGNEE=$(gh issue view "$NUMBER" --repo "$REPO" \
+                --json assignees --jq '.assignees[0].login // ""')
+
+              gh issue edit "$NUMBER" --repo "$REPO" --remove-label "agent/claimed"
+              if [ -n "$ASSIGNEE" ]; then
+                gh issue edit "$NUMBER" --repo "$REPO" --remove-assignee "$ASSIGNEE"
+                cat << EOF > /tmp/comment.md
+          This issue has been claimed for 7 days with no PR activity, so it's back in the queue.
+
+          @${ASSIGNEE} — if you're still working on it, just \`/claim\` again and it's yours.
+          EOF
+              else
+                cat << 'EOF' > /tmp/comment.md
+          This issue has been claimed for 7 days with no PR activity, so it's back in the queue.
+          EOF
+              fi
+              gh issue comment "$NUMBER" --repo "$REPO" --body-file /tmp/comment.md
+            done

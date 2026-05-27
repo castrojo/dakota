@@ -1,0 +1,126 @@
+# hive-project.yaml — dakota configuration for Hive
+#
+# Copy to /etc/hive/hive-project.yaml on the machine running Hive.
+# Reference: https://github.com/kubestellar/hive
+#
+# Hive watches this repo for actionable issues, triages them,
+# and opens PRs. Humans orchestrate; agents implement.
+
+project:
+  name: dakota
+  org: projectbluefin
+  primary_repo: projectbluefin/dakota
+  repos:
+    - projectbluefin/dakota
+
+# ── Human wranglers ───────────────────────────────────────────────────────────
+# All repo maintainers are implicit wranglers by default.
+# This list is for additional trusted contributors who keep the queue moving
+# without needing full maintainer rights in every repo. They can steer
+# actionadon with `/ready` and `/unclaim`, help shape acceptance criteria,
+# and point Hive at the right work.
+wranglers:
+  - castrojo
+  - ahmedadan
+  - alatiera
+  - hanthor
+  - coxde
+  - renner0e
+
+# ── Issue queue ──────────────────────────────────────────────────────────────
+# Hive's scanner treats issues with this label as actionable.
+# actionadon applies it after a maintainer adds acceptance criteria.
+queue:
+  actionable_label: "needs-human/agent-ready"
+
+  # Issues with these labels are excluded from the queue and do not
+  # affect the governor's mode thresholds.
+  exempt_labels:
+    - "hold"
+    - "do-not-merge"
+    - "agent/claimed"
+    - "status/discussing"
+    - "human-needed/agent-oops"
+    - "wontfix"
+    - "kind/wontfix"
+    - "duplicate"
+    - "kind/duplicate"
+    - "stale"
+
+# ── Issue classification ──────────────────────────────────────────────────────
+# Hive's classifier assigns complexity, model tier, and agent lane.
+# Patterns match against issue title + labels.
+classification:
+  patterns:
+    - match_labels: ["area/buildstream", "kind/bug"]
+      complexity: medium
+      lane: scanner
+      notes: "BST element bug — requires just validate to verify"
+
+    - match_labels: ["area/buildstream", "kind/enhancement"]
+      complexity: high
+      lane: architect
+      notes: "BST element addition — requires just validate + build"
+
+    - match_labels: ["area/just"]
+      complexity: low
+      lane: scanner
+      notes: "Justfile recipe change — fast to validate"
+
+    - match_labels: ["area/gnome"]
+      complexity: high
+      lane: architect
+      notes: "GNOME element — touches gnome-build-meta junction"
+
+    - match_labels: ["kind/tech-debt"]
+      complexity: low
+      lane: scanner
+
+    - match_labels: ["kind/github-action", "area/just"]
+      complexity: medium
+      lane: scanner
+
+    - match_labels: ["area/nvidia"]
+      complexity: high
+      lane: architect
+      notes: "NVIDIA variant — test both oci/bluefin.bst and oci/bluefin-nvidia.bst"
+
+# ── Agent cadences ────────────────────────────────────────────────────────────
+# These supplement Hive's built-in governor. Dakota builds are slow
+# (~60 min cold), so architect kicks are intentionally infrequent.
+cadences:
+  scanner:
+    idle: 15m
+    busy: 15m
+    surge: 15m
+  reviewer:
+    idle: 15m
+    busy: 45m
+    surge: paused
+  architect:
+    idle: 30m
+    busy: paused
+    surge: paused
+
+# ── Merge gate ────────────────────────────────────────────────────────────────
+merge_gate:
+  # PRs must have lab:pass before Hive attempts auto-merge.
+  # lab-pr-automerge.yml handles the actual gh pr merge --auto call.
+  required_labels:
+    - "lab:pass"
+  required_ci:
+    - "validate"
+
+# ── Enforcer rules ────────────────────────────────────────────────────────────
+enforcer:
+  # Hard stops — Hive must never do these regardless of agent output.
+  never_merge_to: ["main"]
+  never_close_labels: ["hold", "human-needed/agent-oops"]
+  never_push_to_protected: true
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+# Set HIVE_NOTIFY_SLACK or HIVE_NOTIFY_DISCORD in hive.conf for alerts.
+notifications:
+  on_blocked: true
+  on_stale_pr: true
+  on_surge_mode: true

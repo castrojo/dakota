@@ -37,6 +37,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
+          # Policy: with lab:pass, one approving review is sufficient to enter merge queue.
           if gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null' | grep -q true; then
             echo "Auto-merge already enabled for $PR_URL"
             exit 0

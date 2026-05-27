@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "💬 Start a discussion"
+    url: https://github.com/projectbluefin/dakota/discussions
+    about: "Got a question, idea, or something to share? Discussions are the right place before it becomes an issue."
+  - name: "📖 Build docs (AGENTS.md)"
+    url: https://github.com/projectbluefin/dakota/blob/main/AGENTS.md
+    about: "How to build, validate, and contribute to dakota."
+  - name: "🐟 Project board"
+    url: https://github.com/orgs/projectbluefin/projects/2
+    about: "See what's in progress and what's in the queue."
