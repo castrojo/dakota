@@ -245,6 +245,7 @@ pre-approved once `validate` passes. See issue #501 for the auto-merge roadmap.
 | `kind:improvement` | Enhancement or cleanup — no spec required for small items. |
 | `kind:tech-debt` | Cleanup with no user-visible change. |
 | `kind:github-action` | CI or automation changes. |
+| `lab:pass` | Maintainer lab validation passed; enables label-gated auto-merge for maintainer-owned PR branches. |
 | `human-needed/agent-oops` | An agent made a mistake here — wrong assumption, bad output, filed a spurious issue, broke something. This label builds a learning corpus. |
 
 ### `needs-human/agent-ready` - how to use it
@@ -255,6 +256,12 @@ When you see this label on an issue:
 3. Make the change, validate, build, boot, lint
 4. Open a PR with `Closes #NNN` in the body
 5. CI `validate` must pass
+
+### `lab:pass` - how to use it
+
+- Apply this to a maintainer PR only after human/lab validation passes.
+- `.github/workflows/lab-pr-automerge.yml` then enables `gh pr merge --auto --merge`.
+- The workflow only acts on same-repo PR branches owned by the repository owner (no forks).
 
 ### `human-needed/agent-oops` — how to use it
 

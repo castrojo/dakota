@@ -122,6 +122,45 @@ kargs:
     echo "     [kargs]"
     echo "     append = [\"your.karg=value\"]"
 
+# Workaround for dakota#531: remove stale pre-rename bootc loader entries.
+[group('System')]
+fix-bootc-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    entries_dir="/boot/loader/entries"
+
+    if [[ ! -d "$entries_dir" ]]; then
+        echo "Missing $entries_dir. Nothing to clean up."
+        exit 1
+    fi
+
+    if ! findmnt -rn /boot >/dev/null; then
+        echo "/boot is not mounted. Mount /boot and try again."
+        exit 1
+    fi
+
+    shopt -s nullglob
+    legacy_files=("$entries_dir"/bootc_bootc-*.conf)
+
+    if (( ${#legacy_files[@]} == 0 )); then
+        echo "No legacy bootc_bootc-*.conf entries found. No cleanup needed."
+        exit 0
+    fi
+
+    echo "Legacy loader entries detected:"
+    printf '  - %s\n' "${legacy_files[@]}"
+    echo ""
+
+    gum confirm "Remove only these legacy bootc_bootc-*.conf files?" || {
+        echo "Cleanup canceled."
+        exit 0
+    }
+
+    sudo rm -- "${legacy_files[@]}"
+    echo "Removed legacy loader entries."
+    echo "Verify with: sudo bootc status --json"
+
 # Mount a drive persistently using a systemd.mount unit
 [group('System')]
 mount-drive:

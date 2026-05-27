@@ -1,0 +1,45 @@
+name: Lab PR Auto-merge
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: lab-pr-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enable-auto-merge:
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'lab:pass') &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.owner.login == github.repository_owner
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Get mergeraptor token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.MERGERAPTOR_APP_ID }}
+          private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
+
+      - name: Enable queue-compatible auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null' | grep -q true; then
+            echo "Auto-merge already enabled for $PR_URL"
+            exit 0
+          fi
+
+          gh pr merge "$PR_URL" --auto --merge

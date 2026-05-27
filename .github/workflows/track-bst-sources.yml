@@ -796,7 +796,8 @@ jobs:
 
   # ── Atomic co-tracking of core junctions ──────────────────────────────────
   # freedesktop-sdk.bst overrides reference gnome-build-meta.bst elements directly.
-  # Both must land in one commit. No auto-merge — requires human review.
+  # Both must land in one commit. Auto-merge is enabled, but merge queue
+  # required checks still gate the actual merge.
   track-core-junctions:
     runs-on: ubuntu-24.04
     permissions:
@@ -849,6 +850,8 @@ jobs:
 
           EXISTING=$(gh pr list --head auto/track-core-junctions --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" \
+              --body "Updates \`gnome-build-meta.bst\` and \`freedesktop-sdk.bst\` atomically. Auto-merge is enabled, but merge queue and required checks gate the actual merge."
             PR_URL=$(gh pr view "$EXISTING" --json url --jq '.url')
             echo "Existing PR: $PR_URL"
           else
@@ -856,6 +859,11 @@ jobs:
               --base main \
               --head auto/track-core-junctions \
               --title "chore(deps): update core junctions (gnome-build-meta + freedesktop-sdk)" \
-              --body "Updates \`gnome-build-meta.bst\` and \`freedesktop-sdk.bst\` atomically. Manual review required — junction bumps can break downstream elements.")
+              --body "Updates \`gnome-build-meta.bst\` and \`freedesktop-sdk.bst\` atomically. Auto-merge is enabled, but merge queue and required checks gate the actual merge.")
             echo "PR: $PR_URL"
           fi
+
+          echo "Enabling auto-merge..."
+          # Use --merge to match the merge queue's required merge_method=MERGE.
+          # --squash conflicts with the merge queue ruleset and prevents auto-queuing.
+          gh pr merge "$PR_URL" --auto --merge || echo "::warning::Could not enable auto-merge"
