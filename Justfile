@@ -24,14 +24,18 @@ export OCI_IMAGE_VERSION := env("OCI_IMAGE_VERSION", "latest")
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
 # Set BST_FLAGS env var to prepend flags (e.g. --no-interactive --config ...).
+# Set BST_CACHE_DIR to override the local BuildStream cache directory mount.
+# Defaults to ~/.cache/buildstream for CI and contributor machines.
 # Usage: just bst build oci/bluefin.bst
 #        just bst show oci/bluefin.bst
 #        BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
+#        BST_CACHE_DIR=/var/mnt/ghost-data/bst-cache just bst build oci/bluefin.bst
 [group('dev')]
 bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "${HOME}/.cache/buildstream"
+    BST_CACHE_DIR="${BST_CACHE_DIR:-${HOME}/.cache/buildstream}"
+    mkdir -p "${BST_CACHE_DIR}"
     # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
@@ -40,7 +44,7 @@ bst *ARGS:
         --device /dev/fuse \
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
-        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${BST_CACHE_DIR}:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
         bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
@@ -676,6 +680,8 @@ sbom variant="default":
     #!/usr/bin/env bash
     set -euo pipefail
 
+    BST_CACHE_DIR="${BST_CACHE_DIR:-${HOME}/.cache/buildstream}"
+
     case "{{variant}}" in
         default) ELEMENT="oci/bluefin.bst";        SPDX_NAME="dakota";        OUTFILE="dakota.spdx.json" ;;
         nvidia)  ELEMENT="oci/bluefin-nvidia.bst"; SPDX_NAME="dakota-nvidia"; OUTFILE="dakota-nvidia.spdx.json" ;;
@@ -683,7 +689,7 @@ sbom variant="default":
     esac
 
     # Persist the snakeoil key cache so bst show runs silently (see bst recipe).
-    mkdir -p "${HOME}/.config/buildstream-generate"
+    mkdir -p "${BST_CACHE_DIR}" "${HOME}/.config/buildstream-generate"
     GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
     # Prime the generated source plugin cache (snakeoil secureboot keys).
     # The gnome-build-meta generated.py plugin runs `make` on first use and
@@ -696,7 +702,7 @@ sbom variant="default":
         --device /dev/fuse \
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
-        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${BST_CACHE_DIR}:/root/.cache/buildstream:rw" \
         -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
         -w /src \
         "{{bst2_image}}" \
@@ -712,7 +718,7 @@ sbom variant="default":
         --device /dev/fuse \
         --network=host \
         -v "{{justfile_directory()}}:/src:rw" \
-        -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
+        -v "${BST_CACHE_DIR}:/root/.cache/buildstream:rw" \
         -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
         -w /src \
         -e ELEMENT="${ELEMENT}" \
