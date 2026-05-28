@@ -13,12 +13,12 @@ for the scanner and require understanding of the full element dependency graph.
 
 Read the element graph first:
 ```bash
-BST_FLAGS="--no-interactive" just bst show --deps all --format '%{name}' oci/bluefin.bst
+just bst show --deps all --format '%{name}' oci/bluefin.bst
 ```
 
 Understand what depends on what you're changing:
 ```bash
-BST_FLAGS="--no-interactive" just bst show --deps all --format '%{name}' oci/bluefin.bst \
+just bst show --deps all --format '%{name}' oci/bluefin.bst \
   | grep -F "$(just bst show --format '%{name}' elements/bluefin/myelement.bst)"
 ```
 

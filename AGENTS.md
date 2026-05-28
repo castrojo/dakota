@@ -127,8 +127,8 @@ just validate
 ```
 
 `just validate` mirrors CI by checking both default and nvidia element graphs.
-The `just bst` wrapper defaults to `-o x86_64_v3 true`, and `just validate`
-adds `--no-interactive` so unattended runs never prompt.
+The `just bst` wrapper defaults to `-o x86_64_v3 true --no-interactive`, so
+local graph checks match CI without extra environment variables.
 
 Exits non-zero if any element has a missing dep, bad ref, or patch that fails
 to apply. If this passes, the graph is structurally sound.
@@ -137,7 +137,6 @@ to apply. If this passes, the graph is structurally sound.
 
 ```bash
 export BUILD_SKIP_NVIDIA=1    # skip nvidia variant - saves ~15 min
-export BUILD_SKIP_CHUNKIFY=1  # skip layer reorg - faster local iteration
 
 just build default
 ```
@@ -236,15 +235,15 @@ pre-approved once `validate` passes. See issue #501 for the auto-merge roadmap.
 
 Dakota uses a structured issue lifecycle so that the community shapes what gets built and agents build exactly what was agreed on — no more, no less.
 
-This workflow is **opt-in** in the issue form. Issues only enter it automatically when the author selects **Raptor Current**. Otherwise they stay ordinary issues unless a maintainer chooses to route them into the workflow later.
+This workflow is **opt-in** in the issue form. Issues only enter it automatically when the author selects **Raptor Current**. Otherwise they stay ordinary issues unless a maintainer or wrangler chooses to route them into the workflow later with `status/approved` plus `/ready`.
 
 ```
 New issue
   │
   ▼ actionadon labels status/discussing, posts welcome comment
-Community discusses (👍 reactions + comments)
+Discussion happens in the issue if people want it
   │
-  ▼ Maintainer adds status/approved when consensus is clear
+  ▼ Maintainer adds status/approved when the issue is ready for approval
 Maintainer writes acceptance criteria in the issue body
   │
   ▼ Maintainer adds needs-human/agent-ready
@@ -263,7 +262,7 @@ Merge queue → issue closes automatically
 
 | Comment `/claim` | Takes the issue. actionadon assigns you and adds `agent/claimed`. |
 |---|---|
-| Comment `/ready` | Wranglers and maintainers can move an approved, spec-complete issue into the queue. |
+| Comment `/ready` | Wranglers and maintainers can move an approved, spec-complete issue into the queue. It requires a `### Acceptance criteria` section with real checklist items. |
 | Comment `/unclaim` | Returns it to the queue. The assignee, a wrangler, or a maintainer can unclaim. |
 
 If a claimed issue has no PR activity for 7 days, actionadon automatically returns it to the queue.
@@ -301,7 +300,7 @@ If you're running [Hive](https://github.com/kubestellar/hive) against this repo,
 | Label | What it means |
 |---|---|
 | `status/discussing` | Community discussion underway — not yet approved. |
-| `status/approved` | Maintainer consensus reached — needs acceptance criteria before queue. |
+| `status/approved` | Approved for queue preparation — needs acceptance criteria before queue. |
 | `agent/claimed` | Someone is actively working this issue. |
 | `agent/blocked` | Work stalled — needs human input before it can continue. |
 | `needs-human/agent-ready` | Issue is scoped with clear acceptance criteria. Ready for an agent or contributor to pick up and open a PR. |
@@ -397,13 +396,13 @@ is real and must be fixed.
 just validate
 
 # Build just one element (faster iteration)
-BST_FLAGS="--no-interactive" just bst build elements/bluefin/tailscale.bst
+just bst build elements/bluefin/tailscale.bst
 
 # Open a shell inside the build sandbox for an element
-BST_FLAGS="--no-interactive" just bst shell --build elements/bluefin/tailscale.bst
+just bst shell --build elements/bluefin/tailscale.bst
 
 # Check what depends on an element (what will rebuild if this changes)
-BST_FLAGS="--no-interactive" just bst show --deps all --format '%{name}' oci/bluefin.bst \
+just bst show --deps all --format '%{name}' oci/bluefin.bst \
   | grep -F "$(just bst show --format '%{name}' elements/bluefin/tailscale.bst)"
 ```
 

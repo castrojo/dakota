@@ -9,6 +9,8 @@ sources:
   url: github:projectbluefin/branding/
   path: bluefin-branding
   ref: 59ca14a42f5a922159895d37935f70e408a42c7d
+- kind: local
+  path: files/wallpaper-month
 
 build-depends:
 - gnome-build-meta.bst:gnomeos-deps/just.bst
@@ -32,9 +34,7 @@ config:
     #   - install -Dm644 -t "%{install-root}%{sysconfdir}/" etc/*
     #   - install -Dm644 -t "%{install-root}%{sysconfdir}/" etc/*
   - |
-    HARDCODED_MONTH="12"
-    CURRENT_MONTH=$(date +%m)
-    sed -i "/picture-uri/ s/${HARDCODED_MONTH}/${CURRENT_MONTH}/g" "system_files/bluefin/usr/share/glib-2.0/schemas/zz0-bluefin-modifications.gschema.override"
+    sed -i "s|file:///usr/share/backgrounds/bluefin/12-bluefin.xml|file:///usr/share/backgrounds/bluefin/current-bluefin.xml|g" "system_files/bluefin/usr/share/glib-2.0/schemas/zz0-bluefin-modifications.gschema.override"
 
     cp -r system_files/bluefin/usr/./ "%{install-root}%{prefix}/"
     cp -r system_files/shared/usr/./ "%{install-root}%{prefix}/"
@@ -64,6 +64,12 @@ config:
     cp "%{install-root}%{datadir}/pixmaps/fedora-logo-icon.png" "%{install-root}%{datadir}/pixmaps/img-logo-icon-dark.png"
     # Override GNOME OS boot logo with Bluefin branding
     cp "%{install-root}%{datadir}/pixmaps/fedora-gdm-logo.png" "%{install-root}%{datadir}/pixmaps/gnome-boot-logo.png"
+    ln -sfn 12-bluefin.xml "%{install-root}%{datadir}/backgrounds/bluefin/current-bluefin.xml"
+
+    install -Dm755 bluefin-wallpaper-month-sync "%{install-root}%{prefix}/libexec/bluefin-wallpaper-month-sync"
+    install -Dm644 bluefin-wallpaper-month.service "%{install-root}%{prefix}/lib/systemd/system/bluefin-wallpaper-month.service"
+    mkdir -p "%{install-root}%{prefix}/lib/systemd/system/multi-user.target.wants"
+    ln -sfn ../bluefin-wallpaper-month.service "%{install-root}%{prefix}/lib/systemd/system/multi-user.target.wants/bluefin-wallpaper-month.service"
 
     # Create dconf profile so the distro system database is read
     mkdir -p "%{install-root}%{sysconfdir}/dconf/profile"

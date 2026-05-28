@@ -19,7 +19,7 @@ just bst show oci/bluefin.bst     # inspect element dependency graph
 Builds run inside the pinned `bst2` container. `BST_FLAGS` env var injects flags:
 
 ```bash
-BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
+just bst build oci/bluefin.bst
 ```
 
 ## ⚠️ Hard rules (learned from real mistakes)

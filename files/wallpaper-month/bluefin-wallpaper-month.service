@@ -1,0 +1,11 @@
+[Unit]
+Description=Update Bluefin wallpaper month symlink
+After=local-fs.target
+ConditionPathExists=/usr/share/backgrounds/bluefin
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bluefin-wallpaper-month-sync
+
+[Install]
+WantedBy=multi-user.target

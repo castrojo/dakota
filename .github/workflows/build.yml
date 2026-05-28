@@ -50,14 +50,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Check bst2 image pin consistency
-        run: |
-          just_sha="$(grep -oE 'bst2:[a-f0-9]{40}' Justfile | cut -d: -f2)"
-          track_sha="$(grep -oE 'bst2:[a-f0-9]{40}' .github/workflows/track-bst-sources.yml | cut -d: -f2)"
-          if [[ -z "$just_sha" || -z "$track_sha" ]]; then
-            echo "ERROR: could not find bst2 SHA (Justfile: '${just_sha:-missing}', track-bst-sources.yml: '${track_sha:-missing}')"; exit 1
-          fi
-          [[ "$just_sha" == "$track_sha" ]] || { echo "ERROR: bst2 pin drift — Justfile: $just_sha  track-bst-sources.yml: $track_sha"; exit 1; }
-          echo "OK: bst2 pins consistent: $just_sha"
+        uses: ./.github/actions/check-bst2-pin
 
       - name: Setup Just
         uses: taiki-e/install-action@920ab1831fbf4fb3ef75c8ead83556c918bb7290 # v2
@@ -118,14 +111,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Check bst2 image pin consistency
-        run: |
-          just_sha="$(grep -oE 'bst2:[a-f0-9]{40}' Justfile | cut -d: -f2)"
-          track_sha="$(grep -oE 'bst2:[a-f0-9]{40}' .github/workflows/track-bst-sources.yml | cut -d: -f2)"
-          if [[ -z "$just_sha" || -z "$track_sha" ]]; then
-            echo "ERROR: could not find bst2 SHA (Justfile: '${just_sha:-missing}', track-bst-sources.yml: '${track_sha:-missing}')"; exit 1
-          fi
-          [[ "$just_sha" == "$track_sha" ]] || { echo "ERROR: bst2 pin drift — Justfile: $just_sha  track-bst-sources.yml: $track_sha"; exit 1; }
-          echo "OK: bst2 pins consistent: $just_sha"
+        uses: ./.github/actions/check-bst2-pin
 
       # FIXME: Make the build with JWT work
       # - name: Get JWT token
@@ -173,107 +159,9 @@ jobs:
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
-        run: |
-          mkdir -p logs
-
-          # Setup certificate for pushing to the cache
-          echo "$CASD_CLIENT_CERT" > client.crt
-          echo "$CASD_CLIENT_KEY" > client.key
-          cat > buildstream-ci.conf <<'BSTCONF'
-          scheduler:
-            on-error: continue
-            fetchers: 32
-            builders: 4
-            network-retries: 3
-
-          logging:
-            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
-            error-lines: 80
-
-          cachedir: /root/.cache/buildstream
-          logdir: /src/logs
-
-          BSTCONF
-
-          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
-          build:
-            retry-failed: True
-            max-jobs: 32
-          BSTCONFPUSH
-          else
-            cat >> buildstream-ci.conf <<'BSTCONFNOPUSH'
-          build:
-            retry-failed: True
-          BSTCONFNOPUSH
-          fi
-
-          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
-          artifacts:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: true
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          source-caches:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: true
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          cache:
-            storage-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          remote-execution:
-            execution-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-            action-cache-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-          BSTCONFPUSH
-          fi
-
-          echo "=== BuildStream CI config ==="
-          cat buildstream-ci.conf
+        uses: ./.github/actions/generate-bst-ci-config
+        with:
+          enable-remote-execution: 'true'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
@@ -354,79 +242,9 @@ jobs:
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
-        run: |
-          mkdir -p logs
-
-          echo "$CASD_CLIENT_CERT" > client.crt
-          echo "$CASD_CLIENT_KEY" > client.key
-          cat > buildstream-ci.conf <<'BSTCONF'
-          scheduler:
-            on-error: continue
-            fetchers: 32
-            builders: 4
-            network-retries: 3
-
-          logging:
-            message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
-            error-lines: 80
-
-          cachedir: /root/.cache/buildstream
-          logdir: /src/logs
-
-          build:
-            retry-failed: True
-
-          BSTCONF
-
-          if [[ -n "$CASD_CLIENT_CERT" ]] && [[ -n "$CASD_CLIENT_KEY" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFPUSH'
-          artifacts:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: true
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          source-caches:
-            servers:
-            - url: https://cache.projectbluefin.io:11002
-              push: true
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          cache:
-            storage-service:
-              url: https://cache.projectbluefin.io:11002
-              connection-config:
-                keepalive-time: 180
-                retry-limit: 5
-                retry-delay: 1000
-                request-timeout: 180
-              auth:
-                client-key: /src/client.key
-                client-cert: /src/client.crt
-
-          # remote-execution is intentionally omitted for aarch64:
-          # cache.projectbluefin.io only has x86_64 workers and rejects
-          # aarch64 jobs with "Unsupported ISA aarch64". Builds run locally
-          # on the ubuntu-24.04-arm runner; artifacts are still cached.
-          BSTCONFPUSH
-          fi
-
-          echo "=== BuildStream CI config ==="
-          cat buildstream-ci.conf
+        uses: ./.github/actions/generate-bst-ci-config
+        with:
+          enable-remote-execution: 'false'
 
       - name: Build OCI image with BuildStream (aarch64)
         env:

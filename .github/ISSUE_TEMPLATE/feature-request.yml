@@ -1,5 +1,5 @@
 name: "Feature request"
-description: "Propose something new for Bluefin. Community discusses, maintainers approve, then anyone can build it."
+description: "Propose something new for Bluefin. Use the direct path or opt into the structured queue."
 labels: ["kind/enhancement"]
 body:
   - type: markdown
@@ -7,16 +7,16 @@ body:
       value: |
         Thanks for taking the time to propose something! 🐟
         Write this in your own words — no AI-generated text for the top sections, please.
-        If you opt into **Raptor Current**, `actionadon` will open the community workflow for you. Otherwise this stays a normal issue.
+        If you opt into **Raptor Current**, `actionadon` will open the structured path for you. Otherwise this stays a normal issue.
 
   - type: dropdown
     id: workflow_path
     attributes:
       label: "Workflow path"
-      description: "Choose the lighter direct path, or opt into Raptor Current for community discussion → approval → wrangler queue → agent claim."
+      description: "Choose the lighter direct path, or opt into Raptor Current for structured issue flow → approval → wrangler queue → agent claim."
       options:
         - "Direct issue (skip workflow)"
-        - "Raptor Current (community + wrangler + agent queue)"
+        - "Raptor Current (structured + wrangler + agent queue)"
     validations:
       required: true
 
@@ -74,14 +74,14 @@ body:
     attributes:
       value: |
         ---
-        ### 📋 Acceptance criteria
-        *Maintainers fill this in after community discussion. Leave it blank when filing.*
+        ### Acceptance criteria
+        *Maintainers or wranglers fill this in when preparing the issue for the queue. Leave it blank when filing.*
 
   - type: textarea
     id: acceptance_criteria
     attributes:
       label: "Acceptance criteria"
-      description: "Filled in by a maintainer after the issue is approved. Agents use this as their spec."
+      description: "Filled in by a maintainer after the issue is approved. Use real markdown checklist items (`- [ ] ...`). Agents use this as their spec."
       placeholder: |
         - [ ] `just push-local` recipe exists and is documented in `just --list`
         - [ ] Recipe pushes to `localhost:5000` by default with `REGISTRY` override

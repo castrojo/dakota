@@ -57,7 +57,7 @@ jobs:
               || true
           }
           label "status/discussing" "7c83fd" "Community discussion underway"
-          label "status/approved"   "2ea44f" "Maintainer consensus reached — needs acceptance criteria"
+          label "status/approved"   "2ea44f" "Approved for queue preparation — needs acceptance criteria"
           label "agent/claimed"     "e8b86d" "Someone is actively working this"
           label "agent/blocked"     "e74c3c" "Work stalled — needs human help"
 
@@ -100,7 +100,7 @@ jobs:
 
           **Community:** discuss below. Does this fit Bluefin's direction? A 👍 goes a long way.
 
-          **Maintainers:** when there's consensus, add `status/approved` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
+          **Maintainers and wranglers:** when this issue is ready for the structured path, add `status/approved` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
           EOF
           gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
 
@@ -231,9 +231,31 @@ jobs:
             exit 0
           fi
 
-          if ! echo "$BODY" | grep -qi "acceptance criteria"; then
+          ACCEPTANCE_SECTION=$(
+            printf '%s\n' "$BODY" | awk '
+              /^###[[:space:]]/ {
+                if (in_section) exit
+                if ($0 ~ /^###[[:space:]]+.*Acceptance criteria[[:space:]]*$/) {
+                  in_section=1
+                  print
+                  next
+                }
+              }
+              in_section { print }
+            '
+          )
+
+          if [ -z "$ACCEPTANCE_SECTION" ]; then
             cat << 'EOF' > /tmp/comment.md
-          This issue still needs acceptance criteria in the body before it can enter the queue.
+          This issue needs a dedicated `### Acceptance criteria` section in the body before it can enter the queue.
+          EOF
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          if ! printf '%s\n' "$ACCEPTANCE_SECTION" | grep -Eq '^[[:space:]]*-[[:space:]]\[( |x|X)\][[:space:]]+'; then
+            cat << 'EOF' > /tmp/comment.md
+          This issue needs at least one real checklist item under `### Acceptance criteria` before it can enter the queue.
           EOF
             gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
             exit 0

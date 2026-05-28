@@ -7,16 +7,16 @@ body:
       value: |
         Found a bug? Let's squash it. 🐛
         Write this in your own words — no AI-generated text for the top sections.
-        If you opt into **Raptor Current**, `actionadon` will open the community workflow for you. Otherwise this stays a normal issue.
+        If you opt into **Raptor Current**, `actionadon` will open the structured path for you. Otherwise this stays a normal issue.
 
   - type: dropdown
     id: workflow_path
     attributes:
       label: "Workflow path"
-      description: "Choose the lighter direct path, or opt into Raptor Current for discussion → approval → wrangler queue → agent claim."
+      description: "Choose the lighter direct path, or opt into Raptor Current for structured issue flow → approval → wrangler queue → agent claim."
       options:
         - "Direct issue (skip workflow)"
-        - "Raptor Current (community + wrangler + agent queue)"
+        - "Raptor Current (structured + wrangler + agent queue)"
     validations:
       required: true
 
@@ -26,8 +26,8 @@ body:
       label: "What happened?"
       description: "What did you see? What did you expect to see?"
       placeholder: |
-        Running `just export` always runs chunkify even when I'm just doing a local test build.
-        Expected: chunkify should be skippable for local builds.
+        Running `just validate` locally checks a different graph than CI unless I remember the exact BST_FLAGS incantation.
+        Expected: local validation should match CI by default.
     validations:
       required: true
 
@@ -37,9 +37,9 @@ body:
       label: "Steps to reproduce"
       description: "Minimal steps to hit the bug. Include commands, environment, and any flags."
       placeholder: |
-        1. `just build`
-        2. `just export`
-        3. Observe: chunkify runs unconditionally
+        1. `just validate`
+        2. `just bst show --deps all oci/bluefin.bst`
+        3. Compare local behavior with CI expectations
     validations:
       required: true
 
@@ -78,17 +78,17 @@ body:
     attributes:
       value: |
         ---
-        ### 📋 Acceptance criteria
+        ### Acceptance criteria
         *Maintainers fill this in when approving. Agents use this as their spec.*
 
   - type: textarea
     id: acceptance_criteria
     attributes:
       label: "Acceptance criteria"
-      description: "Filled in by a maintainer. Leave blank when filing."
+      description: "Filled in by a maintainer. Use real markdown checklist items (`- [ ] ...`). Leave blank when filing."
       placeholder: |
-        - [ ] `just export` does not call chunkify unless `BUILD_SKIP_CHUNKIFY` is unset
-        - [ ] `BUILD_SKIP_CHUNKIFY=1 just export` skips chunkify and exits cleanly
+        - [ ] `just validate` mirrors the CI validate job
+        - [ ] `just bst show --deps all oci/bluefin.bst` uses the correct defaults without extra env vars
         - [ ] `just validate` passes after the fix
       render: markdown
     validations:

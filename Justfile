@@ -23,24 +23,28 @@ export OCI_IMAGE_VERSION := env("OCI_IMAGE_VERSION", "latest")
 
 # ── BuildStream wrapper ──────────────────────────────────────────────
 # Runs any bst command inside the bst2 container via podman.
-# Defaults to `-o x86_64_v3 true` so local runs match CI's graph selection.
-# Set BST_FLAGS to append flags (e.g. --no-interactive --config ...).
+# Defaults to `-o x86_64_v3 true --no-interactive` so local runs match CI.
+# Set BST_FLAGS to append flags (e.g. --config ...).
 # Set BST_FLAGS_OVERRIDE to replace all default/appended flags.
 # Usage: just bst build oci/bluefin.bst
 #        just bst show oci/bluefin.bst
-#        BST_FLAGS="--no-interactive" just bst build oci/bluefin.bst
+#        BST_FLAGS="--config /src/buildstream-ci.conf" just bst build oci/bluefin.bst
 [group('dev')]
 bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
-    # CI may pass the full flag set; avoid duplicating x86_64_v3 if already present.
+    DEFAULT_BST_FLAGS="-o x86_64_v3 true --no-interactive"
     if [ -n "${BST_FLAGS_OVERRIDE:-}" ]; then
         EFFECTIVE_BST_FLAGS="${BST_FLAGS_OVERRIDE}"
-    elif [[ "${BST_FLAGS:-}" =~ (^|[[:space:]])-o[[:space:]]+x86_64_v3[[:space:]]+true($|[[:space:]]) ]]; then
-        EFFECTIVE_BST_FLAGS="${BST_FLAGS}"
     else
-        EFFECTIVE_BST_FLAGS="-o x86_64_v3 true ${BST_FLAGS:-}"
+        EFFECTIVE_BST_FLAGS="${BST_FLAGS:-}"
+        if [[ ! " ${EFFECTIVE_BST_FLAGS} " =~ [[:space:]]-o[[:space:]]+x86_64_v3[[:space:]]+true([[:space:]]|$) ]]; then
+            EFFECTIVE_BST_FLAGS="${DEFAULT_BST_FLAGS} ${EFFECTIVE_BST_FLAGS}"
+        fi
+        if [[ ! " ${EFFECTIVE_BST_FLAGS} " =~ [[:space:]]--no-interactive([[:space:]]|$) ]]; then
+            EFFECTIVE_BST_FLAGS="${EFFECTIVE_BST_FLAGS} --no-interactive"
+        fi
     fi
 
     # BST_FLAGS allows appending --no-interactive, --config, etc.
@@ -59,8 +63,8 @@ bst *ARGS:
 # Validate BST element graph — mirrors CI validate job.
 [group('dev')]
 validate:
-    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin.bst
-    BST_FLAGS="-o x86_64_v3 true --no-interactive" just bst show --deps all oci/bluefin-nvidia.bst
+    just bst show --deps all oci/bluefin.bst
+    just bst show --deps all oci/bluefin-nvidia.bst
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
@@ -76,7 +80,7 @@ validate:
 #   just build nvidia       # only nvidia variant
 #
 # When variant=all we run the per-variant build recursively so each one
-# also runs its own export + chunkify, leaving two podman refs:
+# also runs its own export, leaving two podman refs:
 # dakota:latest and dakota-nvidia:latest.
 [group('build')]
 build variant="all":
@@ -165,8 +169,6 @@ export variant="default":
     echo "==> Export complete. Image loaded as ${FINAL_NAME}:${FINAL_TAG}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
-    # Step: Chunkify (reorganize layers)
-    just chunkify "${FINAL_NAME}:${FINAL_TAG}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).

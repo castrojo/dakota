@@ -1,0 +1,126 @@
+name: Generate BuildStream CI config
+description: Write buildstream-ci.conf for CI builds and optional remote execution.
+
+inputs:
+  enable-remote-execution:
+    description: Enable x86_64 remote execution settings and max-jobs tuning.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Generate BuildStream CI config
+      shell: bash
+      env:
+        ENABLE_REMOTE_EXECUTION: ${{ inputs.enable-remote-execution }}
+      run: |
+        mkdir -p logs
+
+        echo "${CASD_CLIENT_CERT:-}" > client.crt
+        echo "${CASD_CLIENT_KEY:-}" > client.key
+
+        cat > buildstream-ci.conf <<'BSTCONF'
+        scheduler:
+          on-error: continue
+          fetchers: 32
+          builders: 4
+          network-retries: 3
+
+        logging:
+          message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
+          error-lines: 80
+
+        cachedir: /root/.cache/buildstream
+        logdir: /src/logs
+        BSTCONF
+
+        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
+          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        build:
+          retry-failed: True
+          max-jobs: 32
+        BSTCONFBUILD
+          else
+            cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        build:
+          retry-failed: True
+        BSTCONFBUILD
+          fi
+        else
+          cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        build:
+          retry-failed: True
+        BSTCONFBUILD
+        fi
+
+        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
+          cat >> buildstream-ci.conf <<'BSTCONFCACHE'
+        artifacts:
+          servers:
+          - url: https://cache.projectbluefin.io:11002
+            push: true
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+
+        source-caches:
+          servers:
+          - url: https://cache.projectbluefin.io:11002
+            push: true
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+
+        cache:
+          storage-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+        BSTCONFCACHE
+
+          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
+        remote-execution:
+          execution-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+          action-cache-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+        BSTCONFREMOTE
+          fi
+        fi
+
+        echo "=== BuildStream CI config ==="
+        cat buildstream-ci.conf
