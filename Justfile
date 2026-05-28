@@ -169,6 +169,16 @@ export variant="default":
     echo "==> Export complete. Image loaded as ${FINAL_NAME}:${FINAL_TAG}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
+[group('build')]
+push-local tag=image_tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+    LOCAL_REGISTRY="${LOCAL_REGISTRY:-localhost:5000}"
+    $SUDO_CMD podman push --tls-verify=false "{{image_name}}:{{tag}}" "${LOCAL_REGISTRY}/{{image_name}}:{{tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -523,6 +533,7 @@ show-me-the-future:
 # the overlay + xattr-apply step can be removed. chunkah can then be run
 # with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
 # See also: projectbluefin/dakota#231.
+[group('build')]
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
