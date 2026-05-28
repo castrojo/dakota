@@ -1,0 +1,196 @@
+name: Sync Hive status to project board
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync-hive-status:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Publish Hive status update
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PROJECT_ID: ${{ vars.DAKOTA_PROJECT_ID || 'PVT_kwDOCCE0ds4BZAIm' }}
+          HIVE_SNAPSHOT_URL: ${{ vars.HIVE_SNAPSHOT_URL || 'https://raw.githubusercontent.com/kubestellar/docs/main/public/live/hive/bluefin/index.html' }}
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.request
+
+          snapshot_url = os.environ['HIVE_SNAPSHOT_URL']
+          try:
+              html = urllib.request.urlopen(snapshot_url, timeout=30).read().decode('utf-8', errors='ignore')
+          except Exception as exc:
+              raise RuntimeError(f'Failed to fetch Hive snapshot from {snapshot_url}: {exc}') from exc
+
+          def extract_json_array(text: str, key: str):
+              needle = f'"{key}":['
+              start = text.find(needle)
+              if start == -1:
+                  return []
+              i = start + len(needle) - 1
+              depth = 0
+              in_string = False
+              escaped = False
+              for j in range(i, len(text)):
+                  ch = text[j]
+                  if in_string:
+                      if escaped:
+                          escaped = False
+                      elif ch == '\\':
+                          escaped = True
+                      elif ch == '"':
+                          in_string = False
+                      continue
+                  if ch == '"':
+                      in_string = True
+                  elif ch == '[':
+                      depth += 1
+                  elif ch == ']':
+                      depth -= 1
+                      if depth == 0:
+                          return json.loads(text[i:j+1])
+              return []
+
+          def extract_supervisor_summary(text: str):
+              match = re.search(r'"liveSummary":"(.*?)"', text)
+              if not match:
+                  return ''
+              raw_value = match.group(1)
+              try:
+                  value = json.loads(f'"{raw_value}"')
+              except json.JSONDecodeError:
+                  value = raw_value.replace('\\n', '\n').replace('\\"', '"')
+              cleaned = re.sub(r'[│└├┌┐┘╭╮╰╯─┬┴┼┃]', '', value)
+              cleaned = re.sub(r'^[\s\-|]+', '', cleaned, flags=re.MULTILINE)
+              cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+              return cleaned
+
+          def bar(value: int, total: int, width: int = 20):
+              if total <= 0:
+                  return '░' * width
+              filled = int(round((value / total) * width))
+              filled = max(0, min(width, filled))
+              return ('█' * filled) + ('░' * (width - filled))
+
+          agents = extract_json_array(html, 'agents')
+          summary = extract_supervisor_summary(html)
+
+          if not agents:
+              raise RuntimeError('No Hive agents found in snapshot')
+
+          def normalize_name(raw: str):
+              return re.sub(r'^[^A-Za-z0-9]+\s*', '', (raw or '').strip())
+
+          rows = []
+          running = 0
+          working = 0
+          blocked = 0
+          for agent in agents:
+              name = normalize_name(agent.get('name', 'unknown'))
+              state = (agent.get('state') or 'unknown').strip().lower()
+              busy = (agent.get('busyStatus') or 'unknown').strip().lower()
+              task = (agent.get('currentTask') or 'No current task').strip()
+              if len(task) > 100:
+                  task = task[:97] + '...'
+              is_blocked = state != 'running' or busy in {'stalled', 'blocked', 'error'}
+              is_working = (not is_blocked) and busy in {'working', 'active', 'running'}
+              if state == 'running':
+                  running += 1
+              if is_working:
+                  working += 1
+              if is_blocked:
+                  blocked += 1
+              rows.append((name, state, busy, task))
+
+          total = len(rows)
+          idle = max(total - working - blocked, 0)
+          healthy = total - blocked
+
+          now = datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M UTC')
+          lines = [
+              f'Hive + Dakota status snapshot ({now})',
+              '',
+              '## Hive operations overview',
+              f'- Agents online: **{running}/{total}**',
+              f'- Agents actively working: **{working}/{total}**',
+              f'- Potentially blocked agents: **{blocked}/{total}**',
+              '',
+              '## Agent activity chart',
+              f'- Healthy   [{bar(healthy, total)}] {healthy}/{total}',
+              f'- Working   [{bar(working, total)}] {working}/{total}',
+              f'- Idle      [{bar(idle, total)}] {idle}/{total}',
+              f'- Blocked   [{bar(blocked, total)}] {blocked}/{total}',
+              '',
+              '## Dakota delivery signal',
+          ]
+
+          by_name = {name.lower(): (state, busy, task) for name, state, busy, task in rows}
+          ci_state = by_name.get('ci-maintainer', ('unknown', 'unknown', 'No data'))
+          scanner_state = by_name.get('scanner', ('unknown', 'unknown', 'No data'))
+          quality_state = by_name.get('quality', ('unknown', 'unknown', 'No data'))
+          lines.extend([
+              f'- CI maintainer: **{ci_state[0]} / {ci_state[1]}** — {ci_state[2]}',
+              f'- Scanner: **{scanner_state[0]} / {scanner_state[1]}** — {scanner_state[2]}',
+              f'- Quality: **{quality_state[0]} / {quality_state[1]}** — {quality_state[2]}',
+              '- Interpretation: Hive is the agent system operating on Dakota work.',
+              '- If blocked rises, or CI maintainer/scanner go non-running, Dakota delivery health is at risk.',
+              '- Action: investigate queued tasks and failing checks.',
+              '',
+              '## Agent details',
+              '| Agent | State | Activity | Current task |',
+              '|---|---|---|---|',
+          ])
+
+          for name, state, busy, task in rows:
+              lines.append(f'| {name} | {state} | {busy} | {task} |')
+
+          if summary:
+              lines.extend([
+                  '',
+                  '## Supervisor summary',
+                  summary,
+              ])
+
+          body = '\n'.join(lines)
+
+          mutation = '''
+          mutation($projectId: ID!, $body: String!) {
+            createProjectV2StatusUpdate(input: {
+              projectId: $projectId
+              statusUpdate: {
+                body: $body
+              }
+            }) {
+              statusUpdate {
+                id
+              }
+            }
+          }
+          '''
+
+          payload = {
+              'query': mutation,
+              'variables': {
+                  'projectId': os.environ['PROJECT_ID'],
+                  'body': body,
+              },
+          }
+          subprocess.run(
+              ['gh', 'api', 'graphql', '--input', '-'],
+              input=json.dumps(payload),
+              text=True,
+              check=True,
+          )
+
+          print('Posted Hive status update to project board.')
+          PY
