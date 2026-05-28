@@ -46,13 +46,13 @@ jobs:
           total = len(agents)
           n_active = len(active)
 
-          # Determine color
+          # Determine status
           if n_active >= 3:
-              color = "GREEN"
+              status = "ON_TRACK"
           elif n_active >= 1:
-              color = "YELLOW"
+              status = "AT_RISK"
           else:
-              color = "RED"
+              status = "OFF_TRACK"
 
           # Clean liveSummary (strip box-drawing, compress blank lines)
           def clean_summary(text):
@@ -127,18 +127,24 @@ jobs:
 
           body = "\n".join(body_parts)
 
-          print(f"Status color: {color}")
+          print(f"Status: {status}")
           print(f"Body preview ({len(body)} chars):")
           print(body[:500])
           print("...")
 
+          # Guard: skip posting if PROJECT_TOKEN is not configured
+          import os
+          if not os.environ.get("GH_TOKEN"):
+              print("WARNING: PROJECT_TOKEN secret is not set — skipping project status post", file=sys.stderr)
+              sys.exit(0)
+
           # Post to GitHub Project status update
           mutation = """
-          mutation($projectId: ID!, $body: String!, $color: ProjectV2StatusUpdateColor!) {
+          mutation($projectId: ID!, $body: String!, $status: ProjectV2StatusUpdateStatus!) {
             createProjectV2StatusUpdate(input: {
               projectId: $projectId
               body: $body
-              color: $color
+              status: $status
             }) {
               statusUpdate {
                 id
@@ -153,7 +159,7 @@ jobs:
                "-f", f"query={mutation}",
                "-f", f"projectId={PROJECT_ID}",
                "-f", f"body={body}",
-               "-f", f"color={color}"],
+               "-f", f"status={status}"],
               capture_output=True, text=True
           )
 
