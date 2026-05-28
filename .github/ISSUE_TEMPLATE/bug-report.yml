@@ -1,55 +1,61 @@
-name: "Bug report"
-description: "Something is broken — your ghost copy helps us fix it fast."
-title: "[Bug]: "
+name: Bug report
+description: Something is broken in the built image or build system.
 labels: ["kind/bug"]
-type: "Bug"
+type: Bug
 body:
   - type: markdown
     attributes:
       value: |
-        Found a bug? You're our eyes on the ground.
-
-        Run this first — it's your primary instrument:
+        Run this first if you can — it captures your system state and gives us everything we need:
 
         ```bash
         ujust report
         ```
 
-        It collects your system state, you review everything, and it uploads a gist. Paste that URL below and you're done — the structured data does the talking.
+        You review everything before it uploads. Paste the gist URL below.
 
   - type: checkboxes
     id: checks
     attributes:
-      label: "Before submitting"
+      label: Before submitting
       options:
-        - label: "I searched existing issues first"
+        - label: I searched existing issues first
           required: true
 
   - type: input
     id: report-link
     attributes:
-      label: "ujust report gist URL"
-      description: "This is all we need to see your exact image, kernel, extensions, and failed units. Paste and go."
+      label: ujust report gist URL
+      description: "Paste the gist URL from ujust report. This gives us your image digest, kernel, extensions, and failed units."
       placeholder: "https://gist.github.com/..."
     validations:
       required: false
 
   - type: dropdown
-    id: workflow-path
+    id: area
     attributes:
-      label: "Workflow path"
-      description: "Direct path by default. Pick Raptor Current only if you want the structured agent queue."
+      label: What area is affected?
+      description: Pick the closest match. This applies a label so maintainers can triage from the board.
       options:
-        - "Direct issue (skip workflow)"
-        - "Raptor Current (structured + wrangler + agent queue)"
+        - GNOME / desktop
+        - Audio / Bluetooth
+        - Networking
+        - Nvidia
+        - Hardware
+        - Build system
+        - Just recipes
+        - Flatpak
+        - Brew / CLI tools
+        - Services / systemd
+        - Other
     validations:
       required: true
 
   - type: textarea
     id: what-happened
     attributes:
-      label: "What happened?"
-      description: "What did you see? What did you expect? One paragraph is enough."
+      label: What happened?
+      description: What did you see? What did you expect? One paragraph is enough.
       placeholder: |
         Bluetooth disappears from the panel after suspend. The indicator is gone until I reboot. Expected it to reconnect automatically.
     validations:
@@ -58,8 +64,8 @@ body:
   - type: textarea
     id: repro
     attributes:
-      label: "Steps to reproduce"
-      description: "Minimal steps to hit the bug."
+      label: Steps to reproduce
+      description: Minimal steps to hit the bug.
       placeholder: |
         1. Suspend the machine
         2. Wake it
@@ -70,14 +76,8 @@ body:
   - type: textarea
     id: extra
     attributes:
-      label: "Extra context"
+      label: Extra context
       description: "Optional. Logs, upstream references, affected hardware. Leave blank if your gist covers it."
       placeholder: "Appears on Framework 13 AMD. Not affected on Intel NUC."
     validations:
       required: false
-
-  - type: markdown
-    attributes:
-      value: |
-        ---
-        *Once a fix ships, you can confirm it works on your machine with `ujust verify <issue-number>` — closing the loop.*

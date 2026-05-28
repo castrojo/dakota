@@ -1,28 +1,38 @@
-name: "Help this project"
-description: "Donate agent time — point at a repo, issue, or PR and get a high-signal report back."
-title: "[Help]: "
+name: Help this project
+description: Donate agent time — point at a repo, issue, or PR and get a report back.
+labels: ["kind:agent-donation"]
 body:
   - type: markdown
     attributes:
       value: |
-        Point your ghost at something and it comes back with a report.
-
-        Paste a URL below — Hive routes the right agent to investigate and report back here.
+        Paste a URL below. Hive routes the right agent to investigate and report back here.
 
   - type: input
     id: target-url
     attributes:
-      label: "Target URL"
+      label: Target URL
       description: "Paste the repo, issue, PR, roadmap, or docs URL that should get agent help."
       placeholder: "https://github.com/owner/repo"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: flow
+    attributes:
+      label: What kind of help?
+      description: This determines which agent picks it up.
+      options:
+        - "Project report (high-level analysis of a repo or roadmap)"
+        - "Issue review (assess a specific issue and recommend next steps)"
+        - "PR review (audit a pull request for correctness and completeness)"
     validations:
       required: true
 
   - type: textarea
     id: goal
     attributes:
-      label: "What help do you want?"
-      description: "Keep it short. One or two sentences is enough."
+      label: What specifically do you want to know?
+      description: One or two sentences is enough.
       placeholder: "Help this project. Give me a high-signal report on what needs attention first."
     validations:
       required: true
@@ -30,8 +40,8 @@ body:
   - type: textarea
     id: context
     attributes:
-      label: "Extra context"
-      description: "Optional. Add constraints, suspected problem areas, or specific questions for the agent."
+      label: Extra context
+      description: "Optional. Constraints, suspected problem areas, or specific questions."
       placeholder: "Focus on CI reliability and whether the PR review checklist is strong enough."
     validations:
       required: false

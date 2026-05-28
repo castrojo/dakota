@@ -124,6 +124,90 @@ jobs:
             --add-label "kind:agent-donation" \
             --add-label "$FLOW_LABEL"
 
+      - name: Auto-label bug diagnostics
+        if: contains(github.event.issue.labels.*.name, 'kind/bug')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          LABELS=""
+
+          # Detect gist URL — user submitted telemetry
+          if printf '%s\n' "$ISSUE_BODY" | grep -Eq 'https://gist\.github(usercontent)?\.com/'; then
+            LABELS="ghost/report-attached"
+          else
+            LABELS="ghost/needs-data"
+          fi
+
+          # Detect area from dropdown selection
+          AREA=""
+          if printf '%s\n' "$ISSUE_BODY" | grep -Fq "GNOME / desktop"; then
+            AREA="area/gnome"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Audio / Bluetooth"; then
+            AREA="area/hardware"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Networking"; then
+            AREA="area/services"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Nvidia"; then
+            AREA="area/nvidia"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Hardware"; then
+            AREA="area/hardware"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Build system"; then
+            AREA="area/buildstream"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Just recipes"; then
+            AREA="area/just"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Flatpak"; then
+            AREA="area/flatpak"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Brew / CLI tools"; then
+            AREA="area/brew"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Services / systemd"; then
+            AREA="area/services"
+          fi
+
+          if [ -n "$AREA" ]; then
+            LABELS="${LABELS},${AREA}"
+          fi
+
+          gh issue edit "$ISSUE_URL" --add-label "$LABELS"
+
+      - name: Auto-label feature area
+        if: contains(github.event.issue.labels.*.name, 'kind/enhancement')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          AREA=""
+          if printf '%s\n' "$ISSUE_BODY" | grep -Fq "GNOME / desktop"; then
+            AREA="area/gnome"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Audio / Bluetooth"; then
+            AREA="area/hardware"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Networking"; then
+            AREA="area/services"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Nvidia"; then
+            AREA="area/nvidia"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Hardware"; then
+            AREA="area/hardware"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Build system"; then
+            AREA="area/buildstream"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Just recipes"; then
+            AREA="area/just"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Flatpak"; then
+            AREA="area/flatpak"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Brew / CLI tools"; then
+            AREA="area/brew"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Services / systemd"; then
+            AREA="area/services"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "CI / automation"; then
+            AREA="area/ci"
+          elif printf '%s\n' "$ISSUE_BODY" | grep -Fq "Agent workflows"; then
+            AREA="area/agent"
+          fi
+
+          if [ -n "$AREA" ]; then
+            gh issue edit "$ISSUE_URL" --add-label "$AREA"
+          fi
+
       - name: Welcome comment
         if: steps.workflow.outputs.workflow == 'raptor_current'
         env:
@@ -132,14 +216,11 @@ jobs:
           WORKFLOW_NAME: ${{ env.WORKFLOW_NAME }}
         run: |
           cat << EOF > /tmp/comment.md
-          👋 A new chapter begins — thanks for bringing this to Dakota!
+          Thanks for bringing this to Dakota.
 
           You opted into **${WORKFLOW_NAME}**.
 
-          **Community:** discuss below. Does this fit Bluefin's direction? A 👍 goes a long way. If you hit the same bug, run:
-          \`\`\`bash
-          ujust confirm $(echo "$ISSUE_URL" | grep -oP '\d+$')
-          \`\`\`
+          **Community:** discuss below. Does this fit Bluefin's direction? A thumbs-up goes a long way.
 
           **Maintainers and wranglers:** when this issue is ready for the structured path, add \`status/approved\` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
           EOF
@@ -416,7 +497,6 @@ jobs:
             --json number,url,updatedAt,assignees \
             --jq ".[] | select(.updatedAt < \"$CUTOFF\") | .number" \
           | while read -r NUMBER; do
-              URL="https://github.com/${REPO}/issues/${NUMBER}"
               ASSIGNEE=$(gh issue view "$NUMBER" --repo "$REPO" \
                 --json assignees --jq '.assignees[0].login // ""')
 

@@ -1,40 +1,48 @@
-name: "Feature request"
-description: "Propose something new — shape what Dakota becomes."
-title: "[Feature]: "
+name: Feature request
+description: Propose something new for the image or build system.
 labels: ["kind/enhancement"]
-type: "Feature"
+type: Feature
 body:
   - type: markdown
     attributes:
       value: |
-        You're not filing a ticket — you're shaping the future.
-
-        Keep it short and practical. If you opt into **Raptor Current**, it enters the structured queue where agents and contributors can pick it up.
+        Keep it short and practical. What's missing, and what would done look like?
 
   - type: checkboxes
     id: checks
     attributes:
-      label: "Before submitting"
+      label: Before submitting
       options:
-        - label: "I searched existing issues first"
+        - label: I searched existing issues first
           required: true
 
   - type: dropdown
-    id: workflow-path
+    id: area
     attributes:
-      label: "Workflow path"
-      description: "Use the direct path by default. Pick Raptor Current only if you want the structured queue."
+      label: What area does this affect?
+      description: Pick the closest match. This drives triage on the board.
       options:
-        - "Direct issue (skip workflow)"
-        - "Raptor Current (structured + wrangler + agent queue)"
+        - GNOME / desktop
+        - Audio / Bluetooth
+        - Networking
+        - Nvidia
+        - Hardware
+        - Build system
+        - Just recipes
+        - Flatpak
+        - Brew / CLI tools
+        - Services / systemd
+        - CI / automation
+        - Agent workflows
+        - Other
     validations:
       required: true
 
   - type: textarea
     id: problem
     attributes:
-      label: "What problem are you solving?"
-      description: "One paragraph. Plain language. What's broken, missing, or annoying today?"
+      label: What problem are you solving?
+      description: One paragraph. Plain language. What's broken, missing, or annoying today?
       placeholder: "I keep having to manually push my local build to the zot registry because there's no just recipe for it..."
     validations:
       required: true
@@ -42,42 +50,17 @@ body:
   - type: textarea
     id: solution
     attributes:
-      label: "What do you propose?"
-      description: "How should it work? What would done look like?"
+      label: What do you propose?
+      description: How should it work? What would done look like?
       placeholder: "Add a `just push-local` recipe that wraps `podman push` with the lab registry URL pre-filled."
     validations:
       required: true
 
-  - type: dropdown
-    id: area
-    attributes:
-      label: "Affected area"
-      description: "Pick the closest match."
-      options:
-        - "buildstream"
-        - "gnome / desktop"
-        - "brew / CLI"
-        - "just recipes"
-        - "services / systemd"
-        - "nvidia"
-        - "hardware"
-        - "testing / QA"
-        - "upstream / junctions"
-        - "other"
-    validations:
-      required: false
-
   - type: textarea
-    id: affected-elements
+    id: extra
     attributes:
-      label: "Extra context"
+      label: Extra context
       description: "Optional. Related issues, upstream references, or affected files."
-      placeholder: "Justfile only — no BST element changes"
+      placeholder: "Justfile only — no BST element changes needed."
     validations:
       required: false
-
-  - type: markdown
-    attributes:
-      value: |
-        ---
-        After this ships, the community verifies it works with `ujust verify <issue-number>` — your feature, confirmed by the fleet.
