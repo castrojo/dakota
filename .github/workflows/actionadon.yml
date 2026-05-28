@@ -265,11 +265,15 @@ jobs:
             exit 0
           fi
 
-          gh issue edit "$ISSUE_URL" --add-label "needs-human/agent-ready"
-          cat << EOF > /tmp/comment.md
-          🧭 Queued by wrangler @${COMMENTER}. This one is ready for a human or agent to `/claim`.
+          if echo "$LABELS" | grep -q "needs-human/agent-ready"; then
+            cat << 'EOF' > /tmp/comment.md
+          This issue is already in the queue and ready for a human or agent to `/claim`.
           EOF
-          gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
+            exit 0
+          fi
+
+          gh issue edit "$ISSUE_URL" --add-label "needs-human/agent-ready"
 
       - name: Handle /unclaim
         if: startsWith(github.event.comment.body, '/unclaim')
