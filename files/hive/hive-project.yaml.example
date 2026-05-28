@@ -39,8 +39,10 @@ queue:
     - "hold"
     - "do-not-merge"
     - "agent/claimed"
+    - "agent/blocked"
     - "status/discussing"
-    - "human-needed/agent-oops"
+    - "status/approved"
+    - "needs-human/agent-oops"
     - "wontfix"
     - "kind/wontfix"
     - "duplicate"
@@ -115,7 +117,7 @@ merge_gate:
 enforcer:
   # Hard stops — Hive must never do these regardless of agent output.
   never_merge_to: ["main"]
-  never_close_labels: ["hold", "human-needed/agent-oops"]
+  never_close_labels: ["hold", "do-not-merge", "needs-human/agent-oops"]
   never_push_to_protected: true
 
 # ── Notifications ─────────────────────────────────────────────────────────────

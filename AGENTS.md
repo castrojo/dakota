@@ -299,10 +299,12 @@ If you're running [Hive](https://github.com/kubestellar/hive) against this repo,
 
 | Label | What it means |
 |---|---|
-| `status/discussing` | Community discussion underway — not yet approved. |
+| `status/discussing` | Structured issue flow in progress; not ready for the agent queue yet. |
 | `status/approved` | Approved for queue preparation — needs acceptance criteria before queue. |
-| `agent/claimed` | Someone is actively working this issue. |
-| `agent/blocked` | Work stalled — needs human input before it can continue. |
+| `agent/claimed` | Actively being worked by a human or agent. |
+| `agent/blocked` | Blocked and needs human input before work can continue. |
+| `hold` | Do not touch; intentionally held by humans. |
+| `do-not-merge` | Do not merge or automate this item. |
 | `needs-human/agent-ready` | Issue is scoped with clear acceptance criteria. Ready for an agent or contributor to pick up and open a PR. |
 | `lgtm` | PR approved by a maintainer. |
 | `help wanted` | Good for any contributor, including agents. |
@@ -311,7 +313,7 @@ If you're running [Hive](https://github.com/kubestellar/hive) against this repo,
 | `kind:tech-debt` | Cleanup with no user-visible change. |
 | `kind:github-action` | CI or automation changes. |
 | `lab:pass` | Maintainer lab validation passed; enables label-gated auto-merge for maintainer-owned PR branches. After `lab:pass`, one maintainer ack/approval is sufficient for merge-queue entry. |
-| `human-needed/agent-oops` | An agent made a mistake here — wrong assumption, bad output, filed a spurious issue, broke something. This label builds a learning corpus. |
+| `needs-human/agent-oops` | An agent made a mistake here — wrong assumption, bad output, filed a spurious issue, broke something. This label builds a learning corpus. |
 
 ### `needs-human/agent-ready` - how to use it
 
@@ -329,10 +331,24 @@ When you see this label on an issue:
 - Queue policy: once `lab:pass` is set, only one maintainer ack/approval is required to proceed to the merge queue.
 - The workflow only acts on same-repo PR branches owned by the repository owner (no forks).
 
-### `human-needed/agent-oops` — how to use it
+### Hive exempt labels
+
+Hive should not touch issues labeled:
+- `hold`
+- `do-not-merge`
+- `status/discussing`
+- `status/approved`
+- `agent/claimed`
+- `agent/blocked`
+- `needs-human/agent-oops`
+- `duplicate` / `kind/duplicate`
+- `wontfix` / `kind/wontfix`
+- `stale`
+
+### `needs-human/agent-oops` — how to use it
 
 When an agent makes an error:
-- A maintainer adds `human-needed/agent-oops` to the relevant issue or PR
+- A maintainer adds `needs-human/agent-oops` to the relevant issue or PR
 - Do **not** remove this label — it is intentional signal
 - If you are the agent that made the error, note what went wrong in your response to the maintainer (so the pattern can be captured in agent skill files)
 - Examples: filed a duplicate issue, proposed a fix for something already upstream, broke a patch apply, failed to check hardware after a build

@@ -56,10 +56,14 @@ jobs:
               || gh label edit "$1" --color "$2" --description "$3" --repo "$REPO" 2>/dev/null \
               || true
           }
-          label "status/discussing" "7c83fd" "Community discussion underway"
-          label "status/approved"   "2ea44f" "Approved for queue preparation — needs acceptance criteria"
-          label "agent/claimed"     "e8b86d" "Someone is actively working this"
-          label "agent/blocked"     "e74c3c" "Work stalled — needs human help"
+          label "status/discussing" "7c83fd" "Structured issue flow in progress; not ready for the agent queue yet."
+          label "status/approved" "2ea44f" "Approved for queue preparation; add acceptance criteria before /ready."
+          label "agent/claimed" "e8b86d" "Actively being worked by a human or agent."
+          label "agent/blocked" "e74c3c" "Blocked and needs human input before work can continue."
+          label "needs-human/agent-ready" "a467dc" "Structured issue is ready for a human or agent to claim."
+          label "needs-human/agent-oops" "f795fe" "Agent mistake or bad automation outcome; Hive must not touch."
+          label "hold" "8b949e" "Do not touch; intentionally held by humans."
+          label "do-not-merge" "b60205" "Do not merge or automate this item."
 
   # ── New issue opened ───────────────────────────────────────────────────────
   on-issue-opened:
