@@ -17,26 +17,25 @@ devmode:
 [group('System')]
 toggle-devmode:
     #!/usr/bin/env bash
-    set -e
+    set -euo pipefail
     IMAGE_INFO_FILE="${IMAGE_INFO_FILE:-/usr/share/ublue-os/image-info.json}"
     IMAGE_NAME="$(jq -rc '."image-name"' "${IMAGE_INFO_FILE}")"
     IMAGE_REF="$(jq -rc '."image-ref"' "${IMAGE_INFO_FILE}" | sed "s/.*ghcr/ghcr/")"
     CURRENT_IMAGE="${IMAGE_REF}:$(jq -rc '."image-tag"' "${IMAGE_INFO_FILE}")"
     IMAGE_BASE_NAME="$(cut -f1 -d\- <<< "${IMAGE_NAME}")"
-    set +e
 
     if grep -q -E -e "dx$" <<< "${IMAGE_NAME}" ; then
         gum confirm "Would you like to disable developer mode?" || exit 0
         echo "Rebasing to a non developer image"
         NEW_IMAGE="$(sed "s/\-dx//" <<< $CURRENT_IMAGE)"
-        pkexec bootc switch --enforce-container-sigpolicy "${NEW_IMAGE}"
+        pkexec bootc switch --enforce-container-sigpolicy "${NEW_IMAGE}" || exit 1
         exit 0
     fi
 
     gum confirm "Would you like to enable developer mode?" || exit 0
     echo "Rebasing to a developer image"
     NEW_IMAGE="$(sed "s/${IMAGE_BASE_NAME}/${IMAGE_BASE_NAME}-dx/" <<< "${CURRENT_IMAGE}")"
-    pkexec bootc switch --enforce-container-sigpolicy "${NEW_IMAGE}"
+    pkexec bootc switch --enforce-container-sigpolicy "${NEW_IMAGE}" || exit 1
     if gum confirm "Do you want to also install the default development flatpaks?" ; then
         ADD_DEVMODE=1 ujust install-system-flatpaks 0 1
     fi
