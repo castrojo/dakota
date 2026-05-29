@@ -104,7 +104,7 @@ jobs:
 
           **Community:** discuss below. Does this fit Bluefin's direction? A 👍 goes a long way.
 
-          **Maintainers and wranglers:** when this issue is ready for the structured path, add `status/approved` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
+          **Maintainers and wranglers:** when this issue is ready for the structured path, add \`status/approved\` and fill in the acceptance criteria. That spec is what a contributor or agent will build against.
           EOF
           gh issue comment "$ISSUE_URL" --body-file /tmp/comment.md
 
@@ -328,7 +328,6 @@ jobs:
             --json number,url,updatedAt,assignees \
             --jq ".[] | select(.updatedAt < \"$CUTOFF\") | .number" \
           | while read -r NUMBER; do
-              URL="https://github.com/${REPO}/issues/${NUMBER}"
               ASSIGNEE=$(gh issue view "$NUMBER" --repo "$REPO" \
                 --json assignees --jq '.assignees[0].login // ""')
 
