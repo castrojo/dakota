@@ -205,7 +205,10 @@ push-local tag="{{image_tag}}" source_ref="{{image_name}}:{{image_tag}}":
         fi
     fi
 
-    TARGET_REF="{{local_registry}}/{{image_name}}:{{tag}}"
+    _src_base="{{source_ref}}"
+    _src_base="${_src_base%%:*}"   # strip :tag suffix
+    _src_base="${_src_base##*/}"   # strip registry/org prefix
+    TARGET_REF="{{local_registry}}/${_src_base}:{{tag}}"
     echo "==> Pushing {{source_ref}} -> ${TARGET_REF}"
     "${PODMAN[@]}" push --tls-verify=false "{{source_ref}}" "${TARGET_REF}"
 
