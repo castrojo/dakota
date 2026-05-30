@@ -53,7 +53,7 @@ just build
 just export
 
 # 3. Push to local registry
-sudo podman push localhost:5000/dakota:latest
+just push-local localhost:5000
 
 # 4. Boot a VM (choose one):
 just boot-fast     # ephemeral VM via virtiofs (requires virtiofsd)
@@ -101,8 +101,8 @@ sudo systemctl reboot
 Do not use `podman push` with `--compression-format=zstd:chunked` for bootc images. The zstd:chunked format is broken with bootc's composefs backend. Use plain `podman push`:
 
 ```bash
-# ✅ Correct
-sudo podman push localhost:5000/dakota:latest
+# ✅ Correct (just push-local uses plain podman push internally)
+just push-local localhost:5000
 
 # ❌ Wrong — breaks composefs
 sudo podman push --compression-format=zstd:chunked localhost:5000/dakota:latest
