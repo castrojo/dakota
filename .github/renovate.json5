@@ -27,7 +27,7 @@
         '/elements/plugins/.*\\.bst$/',
       ],
       matchStrings: [
-        'url:\\s*pypi:[a-f0-9/]+/(?<depName>buildstream[-_]plugins(?:[-_]community)?)-(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.tar\\.gz\\n\\s+ref:\\s*(?<currentDigest>[a-f0-9]{64})',
+        'url:\\s*pypi:source/[a-z0-9]/[\\w-]+/(?<depName>[\\w_-]+)-(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.tar\\.gz\\n\\s+ref:\\s*(?<currentDigest>[a-f0-9]{64})',
       ],
       datasourceTemplate: 'pypi',
       versioningTemplate: 'pep440',
