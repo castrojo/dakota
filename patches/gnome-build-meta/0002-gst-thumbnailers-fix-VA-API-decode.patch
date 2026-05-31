@@ -1,0 +1,148 @@
+From a06739831bb5c0225912d9abdb4c6ba3b4aa76fd Mon Sep 17 00:00:00 2001
+From: "Jorge O. Castro" <jorge.castro@gmail.com>
+Date: Wed, 20 May 2026 00:20:27 -0400
+Subject: [PATCH] =?UTF-8?q?gst-thumbnailers:=20fix=20VA-API=20decode=20?=
+ =?UTF-8?q?=E2=80=94=20uridecodebin=20v2=20+=20caps=20fallback?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ elements/core/gst-thumbnailers.bst            |   2 +
+ .../0001-video-fix-VA-API-decode.patch        | 111 ++++++++++++++++++
+ 2 files changed, 113 insertions(+)
+ create mode 100644 patches/gst-thumbnailers/0001-video-fix-VA-API-decode.patch
+
+diff --git a/elements/core/gst-thumbnailers.bst b/elements/core/gst-thumbnailers.bst
+index 324a0cfa..757f53ed 100644
+--- a/elements/core/gst-thumbnailers.bst
++++ b/elements/core/gst-thumbnailers.bst
+@@ -4,6 +4,8 @@ sources:
+ - kind: tar
+   url: gnome_downloads:gst-thumbnailers/1.0/gst-thumbnailers-1.0.0.tar.xz
+   ref: f2a68019d319995d20a55cf0c32db1bb248834c2300ee757b417a5337d5d6497
++- kind: patch
++  path: patches/gst-thumbnailers/0001-video-fix-VA-API-decode.patch
+ - kind: cargo2
+   ref:
+   - kind: registry
+diff --git a/patches/gst-thumbnailers/0001-video-fix-VA-API-decode.patch b/patches/gst-thumbnailers/0001-video-fix-VA-API-decode.patch
+new file mode 100644
+index 00000000..5ae1bd22
+--- /dev/null
++++ b/patches/gst-thumbnailers/0001-video-fix-VA-API-decode.patch
+@@ -0,0 +1,111 @@
++From 714b8c09263ecfcb5d683930d707254bd81d307c Mon Sep 17 00:00:00 2001
++From: "Jorge O. Castro" <jorge.castro@gmail.com>
++Date: Wed, 20 May 2026 00:20:04 -0400
++Subject: [PATCH] video: fix VA-API decode in gst-video-thumbnailer
++
++Three changes to get H.264/H.265 VA-API hardware decode working:
++
++1. Use uridecodebin (v2) instead of uridecodebin3.
++   decodebin3 inside uridecodebin3 cannot bridge video/x-raw(memory:VAMemory)
++   to the downstream pipeline at preroll without a static link established.
++   uridecodebin (v2) uses decodebin (v2) which emits decoded caps at
++   pad_added time, allowing downstream negotiation.
++
++2. Handle absent GstStream in pad_added callback.
++   uridecodebin3 attaches GstStream objects to pads; uridecodebin (v2)
++   does not. Add fallback to src_pad.current_caps() when stream() is None,
++   checking the media type via caps structure name instead.
++
++3. Add videoconvert before videoscale as defense-in-depth.
++   Ensures any VA-memory frames are downloaded to system RAM before
++   videoscale processes them. No-op for system-memory decoders.
++
++Carry until GStreamer resolves uridecodebin3 + VA memory without vadownload.
++---
++ src/lib.rs | 38 ++++++++++++++++++++++++++++----------
++ 1 file changed, 28 insertions(+), 10 deletions(-)
++
++diff --git a/src/lib.rs b/src/lib.rs
++index 6e15cff..186dc7c 100644
++--- a/src/lib.rs
+++++ b/src/lib.rs
++@@ -150,11 +150,12 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++     let pipeline = Pipeline::new();
++ 
++     // Source
++-    let uridecodebin = gst::ElementFactory::make("uridecodebin3")
+++    let uridecodebin = gst::ElementFactory::make("uridecodebin")
++         .property("uri", input_uri)
++         .build()?;
++ 
++     // Filters
+++    let videoconvert_va = gst::ElementFactory::make("videoconvert").build()?;
++     let videoscale = gst::ElementFactory::make("videoscale").build()?;
++     let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
++     let capsfilter = gst::ElementFactory::make("capsfilter").build()?;
++@@ -171,6 +172,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     pipeline.add_many([
++         &uridecodebin,
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -180,6 +182,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++ 
++     // Static links
++     gst::Element::link_many([
+++        &videoconvert_va,
++         &videoscale,
++         &videoconvert,
++         &capsfilter,
++@@ -231,14 +234,29 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++         source_link_status,
++         move |_, src_pad| {
++             let link_source = || {
++-                let stream = src_pad.stream().unwrap();
++-                if stream.stream_type() != gst::StreamType::VIDEO {
++-                    return Err(Error::other(format!(
++-                        "Stream is of type '{}' instead of 'video'",
++-                        stream.stream_type()
++-                    )));
++-                }
++-                let caps = stream.caps().unwrap();
+++                // uridecodebin3 attaches GstStream to pads; uridecodebin (v2) does not.
+++                // Fall back to current pad caps when stream is unavailable.
+++                let caps = if let Some(stream) = src_pad.stream() {
+++                    if stream.stream_type() != gst::StreamType::VIDEO {
+++                        return Err(Error::other(format!(
+++                            "Stream is of type '{}' instead of 'video'",
+++                            stream.stream_type()
+++                        )));
+++                    }
+++                    stream.caps().ok_or_else(|| Error::other("No caps in stream"))?
+++                } else {
+++                    let pad_caps = src_pad
+++                        .current_caps()
+++                        .ok_or_else(|| Error::other("No caps on pad"))?;
+++                    let s = pad_caps.structure(0).ok_or_else(|| Error::other("Empty caps"))?;
+++                    if !s.name().starts_with("video/") {
+++                        return Err(Error::other(format!(
+++                            "Stream is of type '{}' instead of 'video'",
+++                            s.name()
+++                        )));
+++                    }
+++                    pad_caps
+++                };
++                 let s = caps.structure(0).unwrap();
++ 
++                 let mut width = s.get::<i32>("width").unwrap() as f32;
++@@ -263,7 +281,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
++                 capsfilter.set_property("caps", caps);
++ 
++                 // Link source pad to sink of first filter
++-                let sink_pad = videoscale.static_pad("sink").unwrap();
+++                let sink_pad = videoconvert_va.static_pad("sink").unwrap();
++                 if !sink_pad.is_linked() {
++                     src_pad.link(&sink_pad).map_err(Error::other)?;
++                 }
++-- 
++2.54.0
++
+-- 
+2.53.0
+
