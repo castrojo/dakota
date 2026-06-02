@@ -28,6 +28,7 @@ depends:
   - bluefin/composefs-loop-udisks-ignore.bst
   - bluefin/gnome-epub-thumbnailer.bst
   - bluefin/papers-thumbnailer.bst
+  - bluefin/gst-thumbnailer-codec-shim.bst
   - bluefin/wallpapers.bst
 
   - bluefin/jetbrains-mono.bst
