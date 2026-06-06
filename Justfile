@@ -177,6 +177,13 @@ clean:
     rm -f bootable.raw .ovmf-vars.fd
     rm -rf .build-out
 
+# Clean up the local BST artifact cache.
+# BST removes artifacts beyond the configured quota.
+# See ~/.config/buildstream/userconfig.yaml to set cache.quota.
+[group('dev')]
+gc:
+    just bst artifact gc
+
 # ── Containerfile build (alternative) ────────────────────────────────
 [group('build')]
 build-containerfile $image_name=image_name:
