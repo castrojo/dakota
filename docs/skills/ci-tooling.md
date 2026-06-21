@@ -110,6 +110,73 @@ merge queue button is blocked, verify the required checks are PR-visible.
 | "The workflow is broken because it has no logs." | `jobs: []` usually means the workflow never got past validation. |
 | "I'll fix it by adding more permissions everywhere." | Wrong. Add the minimal top-level superset the reusable chain actually needs. |
 
+### 5) `persist-credentials: false` breaks submodule cleanup
+
+`actions/checkout` with `persist-credentials: false` runs `git submodule foreach`
+during credential cleanup. If any submodule path in `.gitmodules` has no URL, it fails:
+
+```
+fatal: No url found for submodule path '.workflow-scripts' in .gitmodules
+```
+
+**Fix:** Remove `persist-credentials: false`. `GITHUB_TOKEN` is short-lived and
+scoped — the risk is acceptable. Do not add this flag to workflows that operate in
+repos with submodule path entries lacking URLs.
+
+### 6) Push-triggered workflows only fire from the default branch
+
+A workflow with `on: push: branches: [main]` that lives **only on the `next` branch**
+will **never fire**. GitHub only reads workflow files from the default branch when
+evaluating push triggers.
+
+**Fix:** The sync workflow (`sync-next-from-main.yml`) must live on `main`. It then
+fires on every `push: main` and merges main into `next`. A copy also lands on `next`
+via the sync itself (harmless — the `next` copy is never triggered).
+
+### 7) Branch protection blocking workflow direct push
+
+If the target branch (e.g. `next`) has "Require a pull request before merging"
+enabled and `github-actions[bot]` is not in the bypass list, any direct push from a
+workflow fails:
+
+```
+remote: error: GH006: Protected branch update failed
+remote: - Changes must be made through a pull request.
+```
+
+**Fix for dev/rolling branches:** Remove the PR requirement entirely — `next` is a
+dev stream, not production. Run:
+```bash
+gh api -X DELETE repos/<org>/<repo>/branches/next/protection/required_pull_request_reviews
+```
+
+**Fix for prod branches:** Add `github-actions` (app ID 15368) to
+`bypass_pull_request_allowances` in the branch protection settings.
+
+### 8) Renovate/mergeraptor automerge silently fails wrong `base_branch`
+
+The `projectbluefin/actions` reusable `renovate-automerge` workflow defaults
+`base_branch` to `"testing"`. Dakota dep PRs target `main`. Without an explicit
+override, every automerge invocation silently exits "No PR found":
+
+```yaml
+# Fix: always pass base_branch
+jobs:
+  automerge:
+    uses: projectbluefin/actions/.github/workflows/reusable-renovate-automerge.yml@v1
+    with:
+      base_branch: main   # required — default is "testing"
+```
+
+### 9) Excluding bot actors from `pr-autoupdate` strands their PRs
+
+If `pr-autoupdate.yml` explicitly excludes a bot actor (e.g. `app/mergeraptor`) from
+branch-update logic, that bot's PRs accumulate `behind` status and never merge.
+Bots create PRs but do not self-update branches when the base advances.
+
+**Fix:** Remove all actor exclusions from `pr-autoupdate`. Any PR targeting `main`
+that has gone behind should be updated, regardless of who opened it.
+
 ## Red Flags
 
 - `permissions: {}` on a reusable workflow caller
@@ -117,6 +184,10 @@ merge queue button is blocked, verify the required checks are PR-visible.
 - podman `statfs ... no such file or directory`
 - trying to use `continue-on-error` to tame a reusable-workflow call job
 - relying on `GITHUB_TOKEN` for bot PRs that need PR checks to fire
+- `persist-credentials: false` in a workflow that runs in a repo with submodules
+- a sync workflow living only on the non-default branch (it will never fire)
+- `base_branch` not passed to `reusable-renovate-automerge`
+- bot actors excluded from `pr-autoupdate` while their PRs go behind
 
 ## Verification
 
@@ -125,3 +196,7 @@ merge queue button is blocked, verify the required checks are PR-visible.
 - [ ] Any podman bind-mounted cache dir is created explicitly
 - [ ] Required checks are aligned with `pull_request` visibility
 - [ ] The fix reduces CI ambiguity instead of adding more magic
+- [ ] `persist-credentials: false` not added to repos with incomplete `.gitmodules`
+- [ ] Branch-sync workflow lives on the default branch, not on the target branch
+- [ ] `reusable-renovate-automerge` calls pass `base_branch: main` explicitly
+- [ ] `pr-autoupdate` has no actor exclusions that would strand bot PRs

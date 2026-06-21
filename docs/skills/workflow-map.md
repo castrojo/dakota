@@ -79,7 +79,7 @@ merge promotion PR to main
 | `.github/workflows/promote-testing-to-main.yml` | open/update promotion PR | `push: testing`, schedule, manual |
 | `.github/workflows/pr-release-gate.yml` | promotion PR gate | `pull_request` to `main` |
 | `.github/workflows/execute-release.yml` | stable release execution | `push: main`, manual |
-| `.github/workflows/cache-warm.yml` | warm CAS for later queue builds | schedule, manual |
+| `.github/workflows/sync-next-from-main.yml` | merge main into next (preserve junction refs) | `push: main`, `workflow_dispatch` |
 
 ## Branch / Tag Map
 
@@ -87,7 +87,7 @@ merge promotion PR to main
 |---|---|
 | `main` | merged changes build, publish `:$sha`, then promote to `:testing` |
 | `testing` | source branch for promotion PRs into `main` |
-| `next` | rolling GNOME master stream; publish to `:next` and `:btw`, never stable |
+| `next` | rolling GNOME master stream; publish to `:next` and `:btw`, never stable. No PR requirement on branch protection (dev stream, direct push from `sync-next-from-main` is intentional) |
 | `gh-readonly-queue/main/*` | merge-queue build path for `main` |
 | `gh-readonly-queue/next/*` | merge-queue build path for `next` |
 
@@ -105,6 +105,8 @@ merge promotion PR to main
 - Treating `testing` as the branch that publishes stable directly
 - Editing a workflow before checking whether a different workflow actually owns the stage
 - Assuming `workflow_dispatch` behaves like `workflow_run`
+- A branch-sync workflow that only lives on the target branch (will never fire — must be on default branch)
+- Re-adding PR requirement to `next` branch protection (breaks `sync-next-from-main` direct push)
 
 ## Verification
 
