@@ -42,32 +42,31 @@ Use when the task mentions:
    - open/update promotion PR
    - gate the promotion PR
    - execute stable release after merge
-2. **Check whether the gate is real or infrastructure.**
+3. **Check whether the gate is real or infrastructure.**
    - `action_required` on a promotion PR often means the gate is waiting on policy or verification, not that the YAML crashed.
-3. **For promotion PR workflows, inspect reusable caller permissions first.**
-4. **Do not add e2e back into the promotion PR path.**
+4. **For promotion PR workflows, inspect reusable caller permissions first.**
+5. **Do not add e2e back into the promotion PR path.**
    Dakota intentionally gates stable at the later human-approved release stage.
-5. **Automatic promotion cadence is Tuesday 04:00 UTC.**
+6. **Automatic promotion cadence is Tuesday 04:00 UTC.**
    That schedule re-evaluates the promotion PR for the weekly stable cut.
-6. **Manual `workflow_dispatch` must preserve queue behavior.**
+7. **Manual `workflow_dispatch` must preserve queue behavior.**
    `use_merge_queue` should be true for `schedule` and `workflow_dispatch`, but
    not for ordinary `push` refreshes from `testing`.
-7. **For manual recovery, re-run the failed publish/promote workflow that owns the stage, not some nearby check.**
+8. **For manual recovery, re-run the failed publish/promote workflow that owns the stage, not some nearby check.**
 
 ## Promotion Map
 
 ```text
-main merge
-  → build.yml
-  → publish.yml
-  → :testing
-  → push testing / nightly / manual
+push to testing (BST-affecting paths)
+  → build.yml (build job)
+  → publish.yml (workflow_run)
+      → :testing tag published to GHCR
   → promote-testing-to-main.yml
-  → auto/promote-testing-to-main PR
-  → pr-release-gate.yml
-  → merge promotion PR
-  → execute-release.yml
-  → :latest / :stable + release notes
+      → auto/promote-testing-to-main PR
+           → pr-release-gate.yml (cosign verify :testing)
+           → auto-merge → push to main
+               → execute-release.yml (commit message gate)
+                   → :latest / :stable + GitHub Release
 ```
 
 ## Hard Rules

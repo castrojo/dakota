@@ -38,13 +38,13 @@ Use when:
 
 ## Always Rules
 
-1. **Run the CI pre-flight before any merge or push.** (See Hard Rule #9 in `.github/copilot-instructions.md`.)
+1. **Run the CI pre-flight before any merge, push, or workflow dispatch.** (See Hard Rule #9 in `.github/copilot-instructions.md`.)
 2. Run `just --list` first.
-2. Use `just bst ...`, not bare `bst`.
-3. Grep all references before removing a package or file.
-4. Add new package elements to the correct stack.
-5. Validate before opening the PR.
-6. Push to `upstream`, never the fork workflow by accident.
+3. Use `just bst ...`, not bare `bst`.
+4. Grep all references before removing a package or file.
+5. Add new package elements to the correct stack.
+6. Validate before opening the PR.
+7. Push to `upstream`, never the fork.
 
 ## Never Rules
 

@@ -30,12 +30,45 @@ Use this skill when the task mentions:
 - OCI image contents or layer assembly → `oci-layers.md`
 - Normal PR review → `pr-review.md`
 
+## ⚠️ Builder Discipline — Read Before Doing Anything
+
+**ONE BST build at a time. Always.**
+
+Before merging, pushing, or dispatching any workflow, run the mandatory pre-flight:
+
+```bash
+gh run list --repo projectbluefin/dakota --limit 30 \
+  --json databaseId,status,name,headBranch \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+active = [r for r in runs if r['status'] in ('in_progress', 'queued', 'pending', 'waiting')]
+if active:
+    print(f'BLOCKED: {len(active)} active run(s). Cancel all before proceeding:')
+    for r in active:
+        print(f'  gh run cancel {r[\"databaseId\"]} --repo projectbluefin/dakota  # {r[\"name\"]} [{r[\"headBranch\"]}]')
+else:
+    print('OK: field is clear')
+"
+```
+
+If output is not `OK: field is clear` — **cancel every listed run first**.
+
+**Cache-warm is not exempt.** It shares the same `ubuntu-24.04` runner pool and CAS write bandwidth as real builds. Two concurrent BST jobs do not halve wall time — they more than double it and risk 6-hour timeouts with zero elements cached.
+
+The rationalizations that have caused real production failures:
+- "Cache-warm is additive, it helps the build" → **No. Cancel it.**
+- "This is almost done, just a few minutes" → **Cancel it. You don't know that.**
+- "It's a different branch, it won't interfere" → **Same runners and CAS. Cancel it.**
+- "I cancelled one, that's enough" → **Cancel ALL. Re-run pre-flight.**
+
 ## Core Process
 
-1. **Classify the failure before reading logs.**
+1. **Run the mandatory pre-flight above. Verify `OK: field is clear`.**
+2. **Classify the failure before reading logs.**
    - *Which workflow?* `build`, `publish`, `promote`, `release`, `e2e`, `merge queue`
    - *Which phase?* trigger, setup, reusable workflow call, build/export, boot, smoke, promotion
-2. **Load one next skill, not five.**
+3. **Load one next skill, not five.**
    - Need workflow/trigger map → `workflow-map.md`
    - Need reusable workflow / permissions / cache-dir weirdness → `ci-tooling.md`
    - Need boot-check / smoke / testsuite behavior → `e2e-ci.md`
@@ -57,26 +90,33 @@ Use this skill when the task mentions:
 | conflicting chore PRs, stale queue branches | `merge-queue.md` |
 | historical edge cases and deep cuts | `ci-reference.md` |
 
-## Common Rationalizations
+## Workflow Quick Reference
 
-| Rationalization | Reality |
-|---|---|
-| `.github/workflows/build.yml` | BST build + push artifacts to remote CAS. Fires on `merge_group` and `workflow_dispatch` only (no schedule). Does NOT push to GHCR directly. |
-| `.github/workflows/publish.yml` | 3-stage pipeline: setup → publish → promote. Pulls artifact from CAS, exports OCI, pushes `:$sha`, signs, attests, then immediately promotes to `:testing` on every successful merge. No e2e gate — that lives only in the weekly promotion. |
-| `.github/workflows/promote-testing-to-main.yml` | Thin caller for `reusable-promote.yml` in `projectbluefin/actions`. Fires on `push: testing`, nightly schedule (23:00 UTC), and `workflow_dispatch`. Opens or updates the promotion PR that gates `:testing` → `:stable`. |
-| `.github/workflows/execute-release.yml` | Fires on `push: main` + `workflow_dispatch`. A `check-trigger` job reads the squash-merge commit message — only proceeds when it starts with `ci: promote testing images to stable`. Calls `reusable-execute-release.yml` (copies image tags) then `reusable-release.yml` (generates GitHub Release + SBOM diff). |
-| `.github/workflows/e2e.yml` | Smoke test via projectbluefin/testsuite. Fires on PR; `should-run` job skips the test when no image-affecting paths changed. |
-| `.github/workflows/vulnerability-scan.yml` | Weekly Monday 08:00 UTC CVE scan via `reusable-vulnerability-scan.yml`. Also available as `workflow_dispatch` with optional `image_ref` input. Results surface in the GitHub Security tab. |
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `build.yml` | `push: main/next/testing` (paths-ignore: docs/workflows/md), `merge_group`, `workflow_dispatch` — NOT `pull_request` | BST build → artifacts into remote CAS. Does NOT push to GHCR. `validate` job runs on `pull_request` only; `build` job runs on everything else. |
+| `publish.yml` | `workflow_run` from `build.yml` (branches: main, next, testing, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
+| `promote-testing-to-main.yml` | `push: testing`, `schedule: Tue 04:00 UTC`, `workflow_dispatch` | Opens/updates promotion PR from testing into main. |
+| `pr-release-gate.yml` | `pull_request` to `main` | Gates the promotion PR via cosign verify of `:testing`. |
+| `execute-release.yml` | `push: main`, `workflow_dispatch` | Reads commit message — proceeds only when it starts with `ci: promote testing images to stable`. Copies tags to `:latest`/`:stable`, creates GitHub Release. |
+| `cache-warm.yml` | `schedule: Mon/Thu 06:00 UTC`, `workflow_dispatch` | Pre-warms remote CAS. Two parallel jobs (x86_64, aarch64), `continue-on-error: true`. **Not exempt from pre-flight — cancel before any real build.** |
 
 ## Trigger Behavior
 
-| Behavior | pull_request | merge_group | workflow_dispatch | schedule |
-|---|---|---|---|---|
-| `validate` job | Yes | No | No | No |
-| `e2e` job | Yes (change-detected) | No | Yes | No |
-| `build` job | No | Yes | Yes | No |
-| `cache-warm` job | No | No | Yes | Yes (Mon/Thu 06:00 UTC) |
-| Push to GHCR? | No | Via publish.yml | Via publish.yml | No |
+| Job | pull_request | push main/next/testing | merge_group | workflow_dispatch | schedule |
+|---|---|---|---|---|---|
+| `validate` | Yes | No | No | No | No |
+| `e2e` | Yes (change-detected) | No | No | Yes | No |
+| `build` | No | Yes (paths-ignore) | Yes | Yes | No |
+| `cache-warm` | No | No | No | Yes | Mon/Thu 06:00 UTC |
+| Push to GHCR? | No | Via publish.yml | Via publish.yml | Via publish.yml | No |
+
+**push paths-ignore:** `.github/workflows/**`, `docs/**`, `**.md`, `AGENTS.md` — doc/workflow-only pushes do NOT trigger a build. This is intentional; it means a CI-only commit advancing the branch HEAD will leave no build artifact for that SHA.
+
+**Branch → tag mapping** (verified from publish.yml source):
+- `main` or `gh-readonly-queue/main/*` → `:testing`
+- `testing` or `gh-readonly-queue/testing/*` → `:testing`
+- `next` or `gh-readonly-queue/next/*` → `:next`
 
 **PR path:** `validate` + `e2e` (change-detected) — zero remote execution. ~15 min cached, ~30 min cold.
 

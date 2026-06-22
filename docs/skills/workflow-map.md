@@ -72,7 +72,7 @@ merge promotion PR to main
 
 | Workflow | Owns | Normal trigger |
 |---|---|---|
-| `.github/workflows/build.yml` | BST build into remote CAS | `merge_group`, `workflow_dispatch` |
+| `.github/workflows/build.yml` | BST build into remote CAS | `push: main/next/testing` (paths-ignore: docs, workflows, md), `merge_group`, `workflow_dispatch`. `validate` job runs on `pull_request` only; `build` job skips `pull_request`. |
 | `.github/workflows/publish.yml` | export, sign, boot-check, promote tags | `workflow_run` from build |
 | `.github/workflows/publish-smoke.yml` | observational smoke only | `workflow_run` from publish |
 | `.github/workflows/e2e.yml` | PR-facing testsuite check | `pull_request` |
@@ -83,13 +83,26 @@ merge promotion PR to main
 
 ## Branch / Tag Map
 
-| Branch | Result |
-|---|---|
-| `main` | merged changes build, publish `:$sha`, then promote to `:testing` |
-| `testing` | source branch for promotion PRs into `main` |
-| `next` | rolling GNOME master stream; publish to `:next` and `:btw`, never stable. No PR requirement on branch protection (dev stream, direct push from `sync-next-from-main` is intentional) |
-| `gh-readonly-queue/main/*` | merge-queue build path for `main` |
-| `gh-readonly-queue/next/*` | merge-queue build path for `next` |
+| Branch | Trigger | Published tag(s) | Notes |
+|---|---|---|---|
+| `testing` | `push` (BST-affecting paths only) | `:testing` | **Primary `:testing` publish path.** Every BST-affecting push builds → publishes → promotes. Doc/workflow-only pushes are ignored (paths-ignore). |
+| `main` | merge of promotion PR | `:latest`, `:stable` | Only via `execute-release.yml` and only when commit message starts with `ci: promote testing images to stable`. Normal merges do NOT produce a new tag. |
+| `next` | `push` or `sync-next-from-main` dispatch | `:next`, `:btw` | Rolling GNOME master; never stable. No PR requirement on branch protection. |
+| `gh-readonly-queue/main/*` | merge-queue | (build only, no tag) | Gate before merge to `main`. |
+| `gh-readonly-queue/next/*` | merge-queue | (build only, no tag) | Gate before merge to `next`. |
+
+**What testing does (not just PRs):**
+```
+push to testing (BST-affecting)
+  → build.yml (build job)
+  → publish.yml (workflow_run)
+      → :testing tag published to GHCR
+  → promote-testing-to-main.yml
+      → opens/updates auto/promote-testing-to-main PR
+           → pr-release-gate.yml gates it
+           → auto-merge → push to main
+               → execute-release.yml → :stable / :latest
+```
 
 ## Common Rationalizations
 

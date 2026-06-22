@@ -6,7 +6,7 @@
 |---|---|---|
 | `validate` | `pull_request` | `bst show` — graph + patch check (~15 min) |
 | `e2e` | `pull_request` when `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf` changed | Smoke test in QEMU via projectbluefin/testsuite |
-| `build` | `merge_group`, `schedule`, `workflow_dispatch` (skips on `pull_request`) | Full OCI build (~60–90 min) |
+| `build` | `push: main/next/testing` (paths-ignore: `.github/workflows/**`, `docs/**`, `**.md`, `AGENTS.md`), `merge_group`, `workflow_dispatch` — skips on `pull_request` | Full OCI build (~60–90 min) |
 | `build-aarch64` | disabled | ARM64 — pending investigation |
 
 ## Publish pipeline (publish.yml)
@@ -14,9 +14,9 @@
 `build` success on main/testing/next triggers publish.yml via `workflow_run`:
 
 ```
-build.yml (main) → [workflow_run] → publish.yml
-                                    setup → publish-image (matrix) → promote
-                                                     └──────────────→ publish-sbom
+build.yml (main|testing|next) → [workflow_run] → publish.yml
+                                                  setup → publish-image (matrix) → promote (:testing or :next)
+                                                                   └──────────────→ publish-sbom
 ```
 
 | Job | What |
