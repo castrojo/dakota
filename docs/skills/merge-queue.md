@@ -46,7 +46,7 @@ gh pr view <N> --repo projectbluefin/dakota --json baseRefName,headRefName,merge
 
 ## Rebase Conflicting PRs
 
-All PRs — chore, dep-update, feature — target `main`. Sequential merges advance `main`, making earlier branches stale.
+Content PRs (features, fixes, BST changes) target `testing`. GHA-only dep-update PRs (Renovate workflow pins) also target `testing` and are filtered from builds by `paths-ignore`. Sequential merges advance `testing`, making earlier branches stale.
 
 Use this loop:
 
@@ -126,11 +126,9 @@ Options:
 - `gh run rerun <run-id> --failed` if the run is still recent enough
 - comment asking the contributor to push an empty commit
 
-## Feature PRs vs Chore PRs — Different Targets
+## PR Branch Targets
 
-## All PRs target `main`
-
-All PRs — feature, fix, chore, dep-update — target `main`. Check `baseRefName` before rebasing:
+Content PRs (features, fixes, BST/element changes) target `testing`. **Never `main`** — main only receives squash-merge promotion commits. Check `baseRefName` before rebasing:
 
 ```bash
 gh pr view <N> --repo projectbluefin/dakota --json baseRefName,isCrossRepository \

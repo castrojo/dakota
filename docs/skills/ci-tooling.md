@@ -153,19 +153,20 @@ gh api -X DELETE repos/<org>/<repo>/branches/next/protection/required_pull_reque
 **Fix for prod branches:** Add `github-actions` (app ID 15368) to
 `bypass_pull_request_allowances` in the branch protection settings.
 
-### 8) Renovate/mergeraptor automerge silently fails wrong `base_branch`
+### 8) Renovate/mergeraptor automerge — `base_branch` must match PR target
 
-The `projectbluefin/actions` reusable `renovate-automerge` workflow defaults
-`base_branch` to `"testing"`. Dakota dep PRs target `main`. Without an explicit
-override, every automerge invocation silently exits "No PR found":
+The `projectbluefin/actions` reusable `renovate-automerge` workflow uses `base_branch`
+to filter which PRs to automerge. Dakota dep PRs target `testing` (testing-first model),
+which matches the reusable workflow default. Do **not** override with `base_branch: main`:
 
 ```yaml
-# Fix: always pass base_branch
+# Correct — no base_branch override needed, default is "testing"
 jobs:
   automerge:
-    uses: projectbluefin/actions/.github/workflows/reusable-renovate-automerge.yml@v1
+    uses: projectbluefin/actions/.github/workflows/reusable-renovate-automerge.yml@<sha> # v1
     with:
-      base_branch: main   # required — default is "testing"
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      # base_branch omitted — defaults to "testing", which is correct
 ```
 
 ### 9) Excluding bot actors from `pr-autoupdate` strands their PRs

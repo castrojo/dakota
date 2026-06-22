@@ -12,9 +12,9 @@ Load **[docs/SKILL.md](docs/SKILL.md)** for the full reference skill tree. Only 
 common ──────────────────────────┐
 (shared OCI layer)               │
                                  ▼
-bluefin  (main→stable)       ←── images ──→ testsuite (e2e gate)
-bluefin-lts (main→lts)       ←── images ──→ testsuite (e2e gate)
-dakota  (main→testing→latest/stable) ←── images ──→ testsuite (e2e gate)
+bluefin  (testing→main→:stable)       ←── images ──→ testsuite (e2e gate)
+bluefin-lts (main→:lts, migrating to testing-first)  ←── images ──→ testsuite (e2e gate)
+dakota  (testing→main→:stable)        ←── images ──→ testsuite (e2e gate)
 dakota  (next→:next/:btw, rolling nightly, no stable promotion)
                                  │
                                  ▼
@@ -25,7 +25,8 @@ Each image repo pulls `ghcr.io/projectbluefin/common:latest` as a base layer.
 testsuite gates `:testing` promotion nightly and `:latest`/`:stable` promotion weekly.
 
 **Dakota image streams:**
-- `:testing` / `:latest` / `:stable` — `main` branch, GNOME 50 stable, e2e-gated weekly promotion
+- `:testing` — `testing` branch, publishes on every BST-changing push (GHA-only changes filtered)
+- `:latest` / `:stable` — `main` branch, promoted from `testing` weekly via e2e-gated squash PR
 - `:next` / `:btw` — `next` branch, GNOME 51 master, fully automated rolling nightly, **no promotion to stable ever**
 
 **`elements/bluefin/common.bst` strips bluefin-only content from common.** Any file added to `common/system_files/shared/` that does not apply to a fresh dakota install must be explicitly `rm -f`'d in the `install-commands` block of that element. Current stripped files: `rechunker-group-fix` script, service, and preset (chunka migration aid — not needed on fresh dakota).
