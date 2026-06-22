@@ -92,6 +92,29 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 
 **Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
 
+## ⚠️ Mandatory CI Pre-flight — run before every merge, push, or dispatch
+
+Before any action that could trigger a build, verify the field is clear:
+
+```bash
+gh run list --repo projectbluefin/dakota --limit 30 \
+  --json databaseId,status,name,headBranch \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+active = [r for r in runs if r['status'] in ('in_progress', 'queued', 'pending', 'waiting')]
+if active:
+    print(f'BLOCKED: {len(active)} active run(s). Cancel all before proceeding:')
+    for r in active:
+        print(f'  gh run cancel {r[\"databaseId\"]} --repo projectbluefin/dakota  # {r[\"name\"]} [{r[\"headBranch\"]}]')
+else:
+    print('OK: field is clear, safe to proceed')
+"
+```
+
+If not `OK: field is clear` — cancel every listed run, re-run until clean. Cache-warm
+runs are not exempt. See Hard Rule #9 in `.github/copilot-instructions.md`.
+
 ## ⚠️ aarch64 cache-warm: first run is always a cold miss (2026-06-22)
 
 The GHA `actions/cache` restore key for aarch64 is `bst-warm-aarch64-`. On the first

@@ -35,7 +35,9 @@ Use when the task mentions:
 
 ## Core Process
 
-1. **Identify the stage.**
+1. **Run the CI pre-flight first.** Verify `OK: field is clear` before any action.
+   See Hard Rule #9 in `.github/copilot-instructions.md`. No exceptions.
+2. **Identify the stage.**
    - publish to `:testing`
    - open/update promotion PR
    - gate the promotion PR

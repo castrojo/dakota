@@ -38,7 +38,8 @@ Use when:
 
 ## Always Rules
 
-1. Run `just --list` first.
+1. **Run the CI pre-flight before any merge or push.** (See Hard Rule #9 in `.github/copilot-instructions.md`.)
+2. Run `just --list` first.
 2. Use `just bst ...`, not bare `bst`.
 3. Grep all references before removing a package or file.
 4. Add new package elements to the correct stack.
