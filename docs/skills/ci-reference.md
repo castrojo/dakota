@@ -1833,3 +1833,25 @@ a synchronous kernel scan — nodes are ready immediately.
 **Note:** The boot-check gate never passed from PR #849 (2026-06-13) through
 PR #895 (2026-06-16) due to iterating on the wrong approach. The fix was
 always to use `--via-loopback` as documented. The image works on real hardware.
+
+### sync-main-to-testing fails: `validate` required status check blocks direct push (2026-06-21)
+
+**Symptom:** `Sync main → testing` workflow fails with:
+```
+remote: error: GH006: Protected branch update failed for refs/heads/testing.
+remote: - Required status check "validate" is expected.
+```
+
+**Root cause:** The `validate` job in `build.yml` only runs on `pull_request` events. A direct push from the sync workflow never triggers it, so the required status check can never be satisfied — GITHUB_TOKEN is always rejected.
+
+**Fix:** Remove `validate` from `testing` branch required status checks:
+```bash
+gh api /repos/projectbluefin/dakota/branches/testing/protection/required_status_checks \
+  -X PATCH --input - <<'PAYLOAD'
+{"strict": false, "contexts": []}
+PAYLOAD
+```
+
+**Why this is safe:** `testing` is a loose integration branch — not a stability gate. PRs to testing still trigger the `validate` job (visible as an informational PR check), but without a required status check, `gh pr merge --auto` fails and pr-triage falls back to a direct squash merge immediately. PRs merge to testing without waiting for CI. The real quality gates are (a) at `main` where `validate` IS required, and (b) at the `production` Environment requiring 2 distinct human approvals. Removing `validate` from `testing` branch protection trades PR-time CI enforcement on the integration branch for a working automated sync.
+
+**Do NOT add PATs or tokens to the sync workflow — banned.** Fix is always at the branch protection level.
