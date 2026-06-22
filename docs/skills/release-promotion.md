@@ -140,20 +140,25 @@ The gate correctly sets `release/blocked` — the SHA has never been built.
 gh pr merge 970 --repo projectbluefin/dakota --squash --auto
 ```
 
-### Cancel stale builds before landing new BST changes (2026-06-22)
+### One BST build at a time — cancel everything before starting a new build (2026-06-22)
 
-When a long-running build is in progress on `testing` and you are about to merge a new
-BST-affecting PR, cancel the stale build first. Multiple concurrent BST builds compete
-for the same set of `ubuntu-24.04` runners. The stale build's output is useless once
-new changes land — cancelling it immediately unblocks the new build from `pending`.
+**One BST build at a time.** Before triggering or landing any change that starts a new
+BST build, cancel ALL other in-progress BST jobs — including cache-warm runs.
+
+Concurrent BST builds compete for the same `ubuntu-24.04` runners and the same remote
+CAS write bandwidth. Running two builds simultaneously does not halve the time — it
+more than doubles it, and cache-warm runs will hit the 6h job timeout with
+`Cached elements after warm: 0`, wasting the entire run.
 
 ```bash
-# Find in-progress builds on testing
-gh run list --repo projectbluefin/dakota --branch testing --json databaseId,status,name
+# List all in-progress runs (cache-warm, stale builds, anything)
+gh run list --repo projectbluefin/dakota --json databaseId,status,name \
+  | python3 -c "import json,sys; [print(r['databaseId'], r['name']) for r in json.load(sys.stdin) if r['status'] in ('in_progress','queued','pending')]"
 
-# Cancel the stale one
+# Cancel each one before proceeding
 gh run cancel <run-id> --repo projectbluefin/dakota
 ```
 
-Do **not** cancel the cache-warm run — it is populating the remote CAS and its progress
-is additive even if it races with the new build.
+**Cache-warm runs are NOT exempt.** "Its progress is additive" is the rationalization
+that causes the failure. A cache-warm run competing with a real build starves both.
+Cancel the warm run, let the real build finish, then re-trigger cache-warm separately.
