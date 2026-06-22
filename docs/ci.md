@@ -28,34 +28,30 @@ build.yml (main|testing|next) → [workflow_run] → publish.yml
 
 `promote` depends only on `publish-image`, not on SBOM — saves 10–15 min on the critical path.
 
-After every successful publish, `execute-release.yml` auto-fires and creates a GitHub Release.
+**`execute-release.yml`** fires on `push: main` and `workflow_dispatch`. A `check-trigger` job reads the commit message — proceeds only when it matches `^ci\(promote\): dakota testing` or `^chore: promote testing to main`. `workflow_dispatch` bypasses the gate. On success: copies `:testing` → `:stable`/`:latest`, then generates a GitHub Release with SBOM diff.
 
-After every successful publish, `release.yml` auto-fires (via `workflow_run`) and creates a GitHub Release with a card image, SBOM diff, and package changelog.
+**Critical ordering:** `publish.yml` pulls the OCI artifact from CAS. The artifact is only in CAS if `build.yml` ran first for that SHA. Always dispatch `build.yml --ref testing` (or let push trigger it) before manually dispatching `publish.yml`.
 
-**Critical ordering:** `publish.yml` pulls the OCI artifact from CAS. The artifact
-is only in CAS if `build.yml` ran on `main` first. If `build.yml` has only run on
-feature branches, CAS will not have the artifact for main's SHA and publish will
-fail with `"No artifacts to stage"`. Always dispatch `build.yml --ref main` before
-manually dispatching `publish.yml`.
+## Stable promotion (execute-release.yml)
 
-## Weekly promotion (weekly-testing-promotion.yml)
-
-Runs **Sunday 06:00 UTC**. Promotes `:testing` → `:latest` + `:stable` via digest-pinned re-tagging, then fast-forwards the `latest` and `stable` git branches to the promoted source SHA.
+Triggered by a push to `main` whose commit message matches the promotion pattern. The normal path is:
 
 ```
-resolve → check-diff → promote → update-branches
+push to testing (BST-affecting)
+  → build.yml → publish.yml → :testing
+  → promote-testing-to-main.yml → auto/promote-testing-to-main PR
+       → pr-release-gate.yml (cosign verify)
+       → auto-merge → push to main (commit: "ci(promote): dakota testing ...")
+           → execute-release.yml (check-trigger passes)
+               → :testing copied to :stable / :latest
+               → GitHub Release created
 ```
 
-| Job | What |
-|---|---|
-| `resolve` | Pins `:testing` digest, verifies default + NVIDIA share same source SHA |
-| `check-diff` | Skips if `:testing` == `:latest` (nothing new to promote) |
-| `promote` | Re-tags both variants as `:latest` + `:stable` (requires `production` environment approval) |
-| `update-branches` | Fast-forwards `latest` and `stable` branches to promoted source SHA |
+Schedule: `promote-testing-to-main.yml` runs `cron: '0 4 * * 2'` (Tuesday 04:00 UTC). That is the only automated promotion cadence.
 
 ## Schedule
 
-**13:00 UTC** daily — runs after GBM nightly (~08:00 UTC finish).
+No daily build schedule. Builds fire on push, merge_group, or workflow_dispatch only.
 
 ## Remote cache
 
@@ -66,11 +62,8 @@ resolve → check-diff → promote → update-branches
 `ghcr.io/projectbluefin/dakota:{testing,latest,stable}` and `ghcr.io/projectbluefin/dakota:<sha>`
 
 Streams:
-- `:testing` — nightly build, promoted after e2e passes
-- `:latest` — weekly promotion from testing (Tuesday 06:00 UTC)
-- `:stable` — weekly promotion from testing (same cadence as latest)
-
-Build triggers: `merge_group`, `schedule`, `workflow_dispatch` — **not** `pull_request`.
+- `:testing` — published on every BST-affecting push to `testing` or `main` branch
+- `:latest` / `:stable` — promoted from `:testing` via `execute-release.yml` after promotion PR merges to main (Tuesday 04:00 UTC scheduled path, or manual dispatch)
 
 Never bypass the merge queue with `--admin`.
 
@@ -79,18 +72,15 @@ Never bypass the merge queue with `--admin`.
 To manually cut a `:stable` and `:latest` release:
 
 ```bash
-# 1. Ensure :testing exists and is healthy
-gh run list --repo projectbluefin/dakota --workflow "Publish Bluefin dakota" --limit 5
+# 1. Ensure :testing exists and promotion PR is open
+gh pr list --repo projectbluefin/dakota --search 'head:auto/promote-testing-to-main state:open'
 
-# 2. Dispatch the weekly promotion workflow
-gh workflow run weekly-testing-promotion.yml \
-  --repo projectbluefin/dakota
+# 2. If the promotion PR gate has passed, dispatch execute-release directly
+gh workflow run execute-release.yml --repo projectbluefin/dakota --ref main
 
-# 3. Approve the deployment at the production environment gate
-# Approval URL: https://github.com/projectbluefin/dakota/deployments
+# OR: dispatch promote-testing-to-main to open/update the promotion PR
+gh workflow run promote-testing-to-main.yml --repo projectbluefin/dakota
 ```
-
-The `promote` job requires approval via the `production` GitHub Environment before it runs. The number of required approvals is configured in the environment settings.
 
 ## Restarting the factory (publish pipeline has been idle)
 

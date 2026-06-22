@@ -98,7 +98,7 @@ The rationalizations that have caused real production failures:
 | `publish.yml` | `workflow_run` from `build.yml` (branches: main, next, testing, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
 | `promote-testing-to-main.yml` | `push: testing`, `schedule: Tue 04:00 UTC`, `workflow_dispatch` | Opens/updates promotion PR from testing into main. |
 | `pr-release-gate.yml` | `pull_request` to `main` | Gates the promotion PR via cosign verify of `:testing`. |
-| `execute-release.yml` | `push: main`, `workflow_dispatch` | Reads commit message — proceeds only when it starts with `ci: promote testing images to stable`. Copies tags to `:latest`/`:stable`, creates GitHub Release. |
+| `execute-release.yml` | `push: main`, `workflow_dispatch` | `check-trigger` job gates on commit message matching `^ci\(promote\): dakota testing` or `^chore: promote testing to main`. `workflow_dispatch` bypasses the gate. Copies `:testing` → `:stable`/`:latest`, creates GitHub Release. |
 | `cache-warm.yml` | `schedule: Mon/Thu 06:00 UTC`, `workflow_dispatch` | Pre-warms remote CAS. Two parallel jobs (x86_64, aarch64), `continue-on-error: true`. **Not exempt from pre-flight — cancel before any real build.** |
 
 ## Trigger Behavior

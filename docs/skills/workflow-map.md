@@ -58,7 +58,7 @@ Successful publish.yml
   └─ publish-smoke.yml
        └─ smoke suite [observational only]
 
-push: testing / nightly / manual
+push: testing / weekly Tuesday 04:00 UTC / manual
   └─ promote-testing-to-main.yml
        └─ opens or updates promotion PR
             └─ pr-release-gate.yml on that PR
@@ -78,7 +78,7 @@ merge promotion PR to main
 | `.github/workflows/e2e.yml` | PR-facing testsuite check | `pull_request` |
 | `.github/workflows/promote-testing-to-main.yml` | open/update promotion PR | `push: testing`, schedule, manual |
 | `.github/workflows/pr-release-gate.yml` | promotion PR gate | `pull_request` to `main` |
-| `.github/workflows/execute-release.yml` | stable release execution | `push: main`, manual |
+| `.github/workflows/execute-release.yml` | stable release execution | `push: main`, `workflow_dispatch`. `check-trigger` job gates on commit message matching `^ci\(promote\): dakota testing` or `^chore: promote testing to main`; `workflow_dispatch` bypasses the gate. |
 | `.github/workflows/sync-next-from-main.yml` | merge main into next (preserve junction refs) | `push: main`, `workflow_dispatch` |
 
 ## Branch / Tag Map
