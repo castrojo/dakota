@@ -187,8 +187,10 @@ that has gone behind should be updated, regardless of who opened it.
 - relying on `GITHUB_TOKEN` for bot PRs that need PR checks to fire
 - `persist-credentials: false` in a workflow that runs in a repo with submodules
 - a sync workflow living only on the non-default branch (it will never fire)
-- `base_branch` not passed to `reusable-renovate-automerge`
+- `base_branch` not passed to `reusable-renovate-automerge` or passed with wrong value
 - bot actors excluded from `pr-autoupdate` while their PRs go behind
+- pr-triage gate only allowing `renovate/*` to target `testing`, blocking feature PRs
+- rapid-fire PR merges cancelling each other's pending builds (manual dispatch needed)
 
 ## Verification
 
@@ -199,5 +201,7 @@ that has gone behind should be updated, regardless of who opened it.
 - [ ] The fix reduces CI ambiguity instead of adding more magic
 - [ ] `persist-credentials: false` not added to repos with incomplete `.gitmodules`
 - [ ] Branch-sync workflow lives on the default branch, not on the target branch
-- [ ] `reusable-renovate-automerge` calls pass `base_branch: main` explicitly
+- [ ] `reusable-renovate-automerge` calls omit `base_branch` (default is `testing`) or pass the correct branch
 - [ ] `pr-autoupdate` has no actor exclusions that would strand bot PRs
+- [ ] pr-triage gate allows all PRs targeting `testing`, not just `renovate/*`
+- [ ] After rapid-fire merges to main/testing, check for cancelled builds and re-trigger with `gh workflow run build.yml --ref <branch>`

@@ -2033,3 +2033,38 @@ in PR 1004. It caused a redundant 5h rebuild: main build → fast-forward testin
 to testing → second full rebuild of identical content. Fix: PR 997 removed testing from
 push triggers entirely (broke :testing publishing); PR 1004 restored push trigger with
 paths-ignore and removed the fast-forward instead.
+
+### sync-main-to-testing.yml is required — do not remove it
+
+After a `testing → main` promotion squash merge, the squash commit lands on `main`
+but not in `testing`. `sync-main-to-testing.yml` merges main back into testing so
+the next promotion PR is not blocked by a diverged history.
+
+This is **not** the same as the removed publish.yml fast-forward step (which
+caused double builds on every main push). The sync only fires on push to `main`
+and handles a structural necessity of the squash-merge promotion model.
+
+### Rapid-fire PR merges cancel pending builds
+
+GitHub Actions concurrency with `cancel-in-progress: false` prevents in-progress
+jobs from being cancelled, but **pending** (queued) jobs are replaced when a new
+push arrives for the same concurrency group. Merging many PRs in quick succession
+results in all but the last build being cancelled.
+
+**Symptom:** All recent builds on a branch show `cancelled` status.
+
+**Fix:** Trigger manually after the queue settles:
+```bash
+gh workflow run build.yml --ref main        # or --ref testing
+```
+Always check for cancelled builds after batch-merging PRs.
+
+### PR triage gate — testing-first model
+
+The `pr-triage.yml` gate enforces branch targets. In the testing-first model:
+- PRs targeting `testing` → allowed (all content PRs)
+- PRs targeting `next` → allowed (GNOME master stream)
+- PRs targeting anything else (stable, latest) → blocked
+
+If the gate is only allowing `renovate/*` branches to target testing (old state),
+update it to allow all branches targeting testing. See PR 1009.
