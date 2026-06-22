@@ -133,6 +133,29 @@ Every PR must include an update to the relevant `docs/skills/` file (per AGENTS.
 
 `task_complete` without the skill contribution is incomplete.
 
+### 9. One BST build at a time — cancel everything before starting a new build
+
+Before triggering any new BST build (merging a PR, landing changes to `testing`, or
+dispatching `workflow_dispatch`), cancel **all** in-progress BST runs first:
+
+```bash
+# Find and cancel all active runs
+gh run list --repo projectbluefin/dakota --json databaseId,status,name \
+  | python3 -c "import json,sys; [print(r['databaseId']) for r in json.load(sys.stdin) if r['status'] in ('in_progress','queued','pending')]" \
+  | xargs -I{} gh run cancel {} --repo projectbluefin/dakota
+```
+
+This includes:
+- **cache-warm runs** — not exempt. "Its progress is additive" is the rationalization that causes failure.
+- **stale builds** from prior branch state
+- **any other BST job** regardless of how long it has been running
+
+Concurrent BST builds compete for the same `ubuntu-24.04` runners and the same remote
+CAS write bandwidth. Running two simultaneously does not halve the time — it more than
+doubles it and risks 6h timeouts with `Cached elements after warm: 0`.
+
+**One build. Field clear. Then trigger.**
+
 ## CI overview
 
 - **Schedule:** nightly at 13:00 UTC (after gnome-build-meta nightly ~08:00 UTC finish)
