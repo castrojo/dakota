@@ -23,15 +23,6 @@
       "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
       "automerge": true,
       "automergeType": "pr",
-      "automergeStrategy": "squash"
-    },
-    {
-      "description": "Group all projectbluefin/actions SHA updates into one atomic PR",
-      "matchManagers": ["github-actions"],
-      "matchDepNames": ["/projectbluefin\/actions/"],
-      "groupName": "projectbluefin/actions",
-      "automerge": true,
-      "automergeType": "pr",
       "automergeStrategy": "squash",
       "labels": ["chore/deps", "automerge"]
     },
@@ -42,10 +33,11 @@
       "pinDigests": true
     },
     {
-      // projectbluefin/bonedigger has no versioned releases; @main is intentional.
-      // See .github/workflows/bonedigger.yml and docs/skills/ci-tooling.md.
-      "matchPackageNames": ["projectbluefin/bonedigger"],
-      "enabled": false
+      // All projectbluefin/* actions are org-managed — @v1 tags or @main are
+      // intentional. Renovate must not touch them.
+      "matchDepNames": ["/^projectbluefin\\//"],
+      "enabled": false,
+      "pinDigests": false
     }
   ]
 }
