@@ -92,6 +92,22 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 
 **Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
 
+## ⚠️ aarch64 cache-warm: first run is always a cold miss (2026-06-22)
+
+The GHA `actions/cache` restore key for aarch64 is `bst-warm-aarch64-`. On the first
+ever warm run for a new aarch64 runner configuration, the cache entry does not exist
+and the restore step reports `Cache not found`. This is expected — not a bug.
+
+The build proceeds as a full cold build, populates the remote CAS
+(`cache.projectbluefin.io:11002`), and saves the GHA workspace cache under
+`bst-warm-aarch64-<hash>` on completion. All subsequent runs get a partial or full hit.
+
+**x86_64** uses `bst-warm-<hash>` (no arch prefix) and will get a restore-key hit from
+prior warm runs even when the exact hash differs.
+
+**Do not cancel or retrigger a cold aarch64 warm run.** Let it complete — the remote CAS
+population is the valuable output. Future merge-queue builds on aarch64 will benefit.
+
 ## ⚠️ Dangling Submodule — cache-warm and scheduled workflows silently die (2026-06-22)
 
 **Symptom:** Every scheduled workflow that checks out `main` fails at "Checkout repository" with:

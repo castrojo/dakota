@@ -118,3 +118,42 @@ gh run list --repo projectbluefin/dakota --workflow 'Promote testing to main' --
 - [ ] Weekly cadence remains Tuesday `04:00 UTC`
 - [ ] `workflow_dispatch` still supports the same enqueue path as the scheduled run
 - [ ] `run_e2e: false` stayed unchanged in the caller
+
+## Lessons Learned
+
+### release/blocked after CI-only push to testing is expected (2026-06-22)
+
+When a paths-ignored push (e.g. `.github/workflows/**` change) advances the `testing`
+HEAD, the promote gate runs against the new SHA and finds no CI results for it.
+The gate correctly sets `release/blocked` — the SHA has never been built.
+
+**This is not a pipeline failure.** Do not re-trigger or debug. The resolution is:
+
+1. The BST build for the prior SHA (triggered by the image-affecting push) completes.
+2. `publish.yml` fires → `:testing` updated.
+3. Tuesday 04:00 UTC schedule re-runs `promote-testing-to-main` → gate passes → auto-merge fires.
+
+**Factory pattern:** Enable auto-merge on the promotion PR immediately, even while
+`release/blocked`. The merge queue waits for the gate to clear — no human follow-up needed.
+
+```bash
+gh pr merge 970 --repo projectbluefin/dakota --squash --auto
+```
+
+### Cancel stale builds before landing new BST changes (2026-06-22)
+
+When a long-running build is in progress on `testing` and you are about to merge a new
+BST-affecting PR, cancel the stale build first. Multiple concurrent BST builds compete
+for the same set of `ubuntu-24.04` runners. The stale build's output is useless once
+new changes land — cancelling it immediately unblocks the new build from `pending`.
+
+```bash
+# Find in-progress builds on testing
+gh run list --repo projectbluefin/dakota --branch testing --json databaseId,status,name
+
+# Cancel the stale one
+gh run cancel <run-id> --repo projectbluefin/dakota
+```
+
+Do **not** cancel the cache-warm run — it is populating the remote CAS and its progress
+is additive even if it races with the new build.
