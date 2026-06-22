@@ -191,5 +191,18 @@ grep -n 'MODULE_NAME_HERE' /tmp/<junction>-work/files/linux/fdsdk-config.sh
 
 BST source cache is available locally: `~/.cache/buildstream/sources/git_repo/`. No network needed for rebase work.
 
+### countme service uses PLATFORM_ID for Fedora base version
+
+`elements/oci/os-release.bst` now includes `PLATFORM_ID: "platform:f42"` (standard Fedora os-release field). The `/usr/libexec/dakota-countme` script reads this at runtime to derive `fedora-NN` for the Fedora metalink URL.
+
+**When bumping gnome-build-meta to a new Fedora base, update PLATFORM_ID in `elements/oci/os-release.bst` in the same commit:**
+
+```bash
+# In elements/oci/os-release.bst, update:
+  PLATFORM_ID: "platform:f43"   # ← bump this when Fedora base changes
+```
+
+Forgetting this means countme pings the wrong Fedora metalink repo. The script has no fallback — it will 404 silently (curl -sf suppresses errors).
+
 > Add further entries here when you discover a new pattern.
 > Format: `### <pattern name> (YYYY-MM-DD)`

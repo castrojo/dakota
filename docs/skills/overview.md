@@ -217,6 +217,18 @@ Attempting to push with `--compression-format=zstd:chunked` or via skopeo after 
 
 The BST export includes `/sysroot/` artifacts (OSTree build tooling leftover). These are stripped via `--prune /sysroot/` at rechunking time. The booted system uses the composefs-oci backend — there is no ostree runtime on a running Dakota system. Never suggest `rpm-ostree`, `bootupd`, or `ostree admin` commands for a running Dakota system.
 
-### Hardware confirmation is required — CI green is not sufficient (2026-06-07)
+### countme infrastructure — reports to Fedora, not a custom endpoint
+
+Dakota ships `/usr/libexec/dakota-countme` (enabled via `bluefin-countme.timer`, weekly). It reports to Fedora's countme infrastructure by curling the metalink URL with a `libdnf5`-format User-Agent — the same protocol dnf5/rpm-ostree-countme use. No dnf or RPM packages needed.
+
+Key files:
+- `files/countme/dakota-countme` — the script (reads os-release, tracks age cookie, builds the URL)
+- `files/countme/bluefin-countme.{service,timer}` — systemd units
+- `elements/bluefin/countme.bst` — installs everything
+- `elements/oci/os-release.bst` — `PLATFORM_ID: "platform:fNN"` is the Fedora base version source
+
+The script identifies the OS as `Dakota` in the User-Agent so it's distinguishable from Bluefin in Fedora's dataset. When gnome-build-meta bumps to a new Fedora base, update `PLATFORM_ID` in `os-release.bst` in the same commit (see `patch-junctions.md`).
+
+Opt-out: create `/etc/bluefin-countme-opt-out`.
 
 The validation gate is: `bootc upgrade` on test hardware succeeds + reboot + GDM active. CI passing confirms the image was built and passes `bootc container lint`. It does not confirm the image boots correctly on real hardware. Do not mark issues resolved without hardware evidence, and do not state something is "fixed" based on CI alone.
