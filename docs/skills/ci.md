@@ -2117,3 +2117,43 @@ Even with `[skip ci]`, the commits touched `main` and caused noise. Removed.
 
 If ISO table needs updating in future, do it on demand via `workflow_dispatch` or
 move it to the dakota-iso repo where it naturally belongs.
+
+### testing branch must have required check for auto-merge to work (2026-06-21)
+
+`gh pr merge --auto` requires the target branch to have at least one required
+status check or required review. `testing` had no protection — `--auto` silently
+failed with a warning, leaving approved PRs stuck indefinitely.
+
+**Fix:** add `validate` as a required check on `testing` via the API:
+
+```bash
+gh api repos/projectbluefin/dakota/branches/testing/protection \
+  -X PUT --input - << 'PROTECTION'
+{
+  "required_status_checks": {"strict": false, "contexts": ["validate"]},
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": true
+}
+PROTECTION
+```
+
+`allow_force_pushes: true` is required — the promote workflow force-pushes the squash branch.
+
+### pr-triage auto-merge must fall back to direct merge (2026-06-21)
+
+`--auto` can fail even on protected branches (race between approval and checks completing,
+or protection not yet propagated). The correct pattern in `on-pr-review`:
+
+```bash
+if gh pr merge "$PR_URL" --auto --squash 2>/dev/null; then
+  echo "auto-merge enabled"
+else
+  gh pr merge "$PR_URL" --squash 2>/dev/null \
+    && echo "merged directly" \
+    || echo "::warning::checks still running"
+fi
+```
+
+Without the fallback, approved PRs with already-green CI sit permanently unmerged.
