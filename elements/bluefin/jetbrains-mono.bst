@@ -25,3 +25,9 @@ config:
       install -p -m0644 fonts/otf/*.otf "%{fontdir}/jetbrains-mono"
     - |
       %{install-extra}
+
+public:
+  bst:
+    split-rules:
+      fonts:
+        - "%{datadir}/fonts/**"

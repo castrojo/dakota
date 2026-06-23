@@ -30,3 +30,9 @@ config:
       install -p -m0644 *.ttf "%{fontdir}/jetbrains-mono-nerd-font"
     - |
       %{install-extra}
+
+public:
+  bst:
+    split-rules:
+      fonts:
+        - "%{datadir}/fonts/**"

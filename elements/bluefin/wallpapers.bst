@@ -24,3 +24,10 @@ config:
     cp -r *.jxl *.xml "%{install-root}%{datadir}/backgrounds/bluefin"
     cp -r gnome-background-properties "%{install-root}%{datadir}/gnome-background-properties"
   - "%{install-extra}"
+
+public:
+  bst:
+    split-rules:
+      wallpapers:
+        - "%{datadir}/backgrounds/**"
+        - "%{datadir}/gnome-background-properties/**"

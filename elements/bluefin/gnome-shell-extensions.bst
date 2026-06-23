@@ -15,3 +15,9 @@ depends:
 
 variables:
   strip-binaries: ""
+
+public:
+  bst:
+    split-rules:
+      extensions:
+        - "%{datadir}/gnome-shell/extensions/**"
