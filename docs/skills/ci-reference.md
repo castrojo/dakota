@@ -83,6 +83,14 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
 
+**CAS server hardware (Hetzner AX102-U):**
+- CPU: AMD Ryzen 9 7950X3D (16c/32t, 4.2 GHz base)
+- RAM: 128 GB DDR5
+- Storage: 2 × 1.92 TB NVMe SSD Gen4
+- Network: 1 Gbit/s dedicated uplink (unlimited traffic)
+
+**Fetcher count reasoning:** `buildstream-ci.conf` uses `fetchers: 32` per job. With default + nvidia running simultaneously = 64 concurrent gRPC streams. The AX102-U can comfortably serve 64 streams; the actual ceiling is the 1 Gbit/s uplink (~125 MB/s total). 32 fetchers per job is appropriate. Do not lower without evidence of CAS-side saturation.
+
 ### mTLS Authentication
 
 | Variable | Type | Content |
@@ -578,7 +586,7 @@ for job in d.get('jobs', []):
         print(f\"{job['id']} | {job['status']} | {mins}m | {job['name'][:60]}\")
 "
 
-# 2. Fetch the live log (note: truncated at ~23K lines for long builds)
+# 2. Fetch the live log (note: truncated at ~11K lines = first 2-5 min of dense BST output)
 gh api repos/projectbluefin/dakota/actions/jobs/<job-id>/logs > /tmp/bst-live.log
 
 # 3. Count cache hits vs elements being compiled
@@ -589,11 +597,19 @@ grep "Running commands" /tmp/bst-live.log | tail -20  # what's actively building
 grep "START.*Running commands" /tmp/bst-live.log | grep -oE "\[.*\]" | sort -u
 ```
 
-**Important:** The live log endpoint is a snapshot, not a stream. For builds
-running > ~90 minutes, the log may be stale by 60–90 minutes relative to current
-wall-clock time. If the last log timestamp is behind by > 1 hour, the build is
-still running but log data is not being returned. Use `gh api
-repos/.../actions/runs/<id>/jobs` to confirm `status: in_progress`.
+**Important:** The live log endpoint is a snapshot, not a stream. The API caps at
+**~11K lines** which covers only the first 2-5 minutes of dense BST output — for a
+2-hour build you see essentially nothing useful after the first few minutes. This
+is a GitHub API limitation, not a BST issue.
+
+**To see progress monitor output mid-build:** Open the GHA UI directly:
+`https://github.com/projectbluefin/dakota/actions/runs/<run-id>` — the
+`bst-progress.py` monitor emits lines every 30 seconds in the live log stream
+viewable in browser. The API endpoint does NOT stream these.
+
+For builds running > ~90 minutes, the API log timestamp will be far behind
+wall-clock. Use `gh api repos/.../actions/runs/<id>/jobs` to confirm
+`status: in_progress`.
 
 **Deciding whether to re-trigger:** A build making steady progress on
 gnome-build-meta `core-deps/` elements is normal cache-warming after a GNOME

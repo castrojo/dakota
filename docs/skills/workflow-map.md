@@ -78,8 +78,8 @@ push: testing/main (BST paths) / Tuesday 04:00 UTC / manual   ← PARALLEL, DECO
 
 | Workflow | Owns | Normal trigger |
 |---|---|---|
-| `.github/workflows/build.yml` | BST build into remote CAS | `push: main/next/testing` (paths-ignore: docs, workflows, md), `merge_group`, `workflow_dispatch`. `validate` job runs on `pull_request` only; `build` job skips `pull_request`. |
-| `.github/workflows/build-aarch64.yml` | aarch64 OCI build + GHCR push | `push: main/testing` (same paths-ignore as build.yml), `schedule: Tuesday 04:00 UTC`, `workflow_dispatch`. Fully decoupled — never in `needs:` of publish/promote/release. |
+| `.github/workflows/build.yml` | BST build into remote CAS | `push: main/next/testing` (paths-ignore: docs, workflows, md, `files/scripts/**`), `merge_group`, `workflow_dispatch`. `validate` job runs on `pull_request` only; `build` job skips `pull_request`. |
+| `.github/workflows/build-aarch64.yml` | aarch64 OCI build + GHCR push | `push: main/testing` (same paths-ignore as build.yml including `files/scripts/**`), `schedule: Tuesday 04:00 UTC`, `workflow_dispatch`. Fully decoupled — never in `needs:` of publish/promote/release. |
 | `.github/workflows/publish.yml` | export, sign, boot-check, promote tags | `workflow_run` from build |
 | `.github/workflows/publish-smoke.yml` | observational smoke only | `workflow_run` from publish |
 | `.github/workflows/e2e.yml` | PR-facing testsuite check | `pull_request` |

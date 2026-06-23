@@ -133,3 +133,18 @@ BST option names only allow alphanumeric characters and underscores. A name like
 ### Weak-key caching can hide new packages behind a clean build (2026-06-07)
 
 Changing a `kind: stack` dependency does not always invalidate downstream `compose` outputs in non-strict mode. If a package is present in the graph but missing from the final image, inspect cache behavior before assuming the package element is wrong.
+
+### Warm-cache builds still take 90-120 min — this is normal (2026-06-23)
+
+Even with a fully warm remote CAS, a full build takes 90-120 min. Common misconception: "cache is hot = fast build." Actual breakdown:
+
+- **Pull volume:** ~1,400 elements × a few seconds each / 32 parallel fetchers = 15-30 min just for network pulls
+- **Two parallel jobs:** `default` and `nvidia` both run simultaneously, each hitting the same CAS endpoint, halving effective bandwidth per job
+- **OCI assembly is sequential:** After all elements pull/build, `oci/bluefin.bst` runs chunkify + image assembly — single-threaded, typically 20-40 min on its own
+- **Cold elements:** Any junction ref bump (Renovate PRs for distrobox, gnome-build-meta, etc.) invalidates those subtrees → full recompile from source adds 30-90 min
+
+Do not cancel a build under 120 min just because it "seems slow." Historical range for successful builds: 90-150 min.
+
+### 32 fetchers is the right setting for cache.projectbluefin.io (2026-06-23)
+
+`buildstream-ci.conf` uses `fetchers: 32` (BST default is 10). With default + nvidia running simultaneously = 64 concurrent gRPC streams. The CAS server is a Hetzner AX102-U (1 Gbit/s uplink, NVMe Gen4) and can serve 64 streams comfortably. The bottleneck is network bandwidth (~125 MB/s total), not server capacity. Do not reduce fetchers without evidence of server-side saturation.
