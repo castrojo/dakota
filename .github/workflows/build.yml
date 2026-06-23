@@ -15,6 +15,7 @@ on:
       - 'docs/**'
       - '**.md'
       - 'AGENTS.md'
+      - 'files/scripts/**'
   workflow_dispatch:
     # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
