@@ -206,3 +206,24 @@ Forgetting this means countme pings the wrong Fedora metalink repo. The script h
 
 > Add further entries here when you discover a new pattern.
 > Format: `### <pattern name> (YYYY-MM-DD)`
+
+### Patch context lines break when upstream bumps a source ref (2026-06-23)
+
+When gnome-build-meta bumps an element's upstream source ref (e.g. `gnome-initial-setup.bst` advances from `50.0-65-g4472cba` to `50.0-66-g77be510d`), any `patch_queue` patch that removes the old ref line (`-  ref: <old>`) will fail to apply even though no functional code changed.
+
+**Symptom:** CI fails at `bst show` / validate step with:
+```
+error: patch failed: elements/core/<element>.bst:2
+error: elements/core/<element>.bst: patch does not apply
+FAILURE gnome-build-meta.bst: patch_queue source [...]: Failed to apply patches from patches/gnome-build-meta
+```
+
+**Fix:** Update the removal context line in the patch from the old ref to the new ref. The `+` lines (new fork/ref being substituted in) are unchanged.
+
+```diff
+ # In patches/gnome-build-meta/0003-homed-Add-systemd-homed-support.patch:
+--  ref: 50.0-65-g4472cba3e9540f75fec272fd6d6d3acd90e00d1d
++-  ref: 50.0-66-g77be510de42c5b14c0967b6f61609990d0c2505b
+```
+
+The `index <old>..<new> 100644` line in the patch does NOT need updating — `git apply` without `--index` ignores it.

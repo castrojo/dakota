@@ -310,6 +310,33 @@ succeeds) — only the GitHub Release creation step fails.
 **Workaround:** Ignore the `release-notes` failure when the triggering push was
 CI-only. The image is still published correctly.
 
+### 14) `BST_SHOW_OUT=$(cmd)` with bash -e exits on bst show failure (2026-06-23)
+
+GHA `run:` steps use `shell: /usr/bin/bash -e {0}` by default. With errexit active,
+`VAR=$(cmd 2>&1)` exits immediately if `cmd` fails — the `rc=$?` line never executes.
+
+**Symptom:** "Count elements for progress tracking" exits with 255 (or whatever bst
+show returned) instead of emitting a `::warning::` and continuing.
+
+```
+##[error]Process completed with exit code 255.
+```
+
+**Fix:** Wrap the assignment with `set +e` / `set -e`:
+
+```bash
+set +e
+BST_SHOW_OUT=$(just bst show --deps all --format '%{name}' oci/bluefin.bst 2>&1)
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  ...
+```
+
+This pattern is now used in both `build.yml` and `cache-warm.yml` (fixed in
+commit `1f89a42`). Apply the same pattern to any future step that needs to capture
+both the output and exit code of a command that may fail.
+
 ## Red Flags
 
 - `permissions: {}` on a reusable workflow caller
