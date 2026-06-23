@@ -68,7 +68,7 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 | `validate` job | Yes | No | No | No |
 | `e2e` job | Yes (change-detected) | No | Yes | No |
 | `build` job | No | Yes | Yes | No |
-| `cache-warm` job | No | No | Yes | Yes (Mon/Thu 06:00 UTC) |
+| `cache-warm` job | No | No | Yes | Yes (Mon–Fri 06:00 UTC) |
 | Push to GHCR? | No | Via publish.yml | Via publish.yml | No |
 
 **PR path:** `validate` + `e2e` (change-detected) — zero remote execution. ~15 min cached, ~30 min cold.
@@ -77,7 +77,7 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 
 **Merge queue path:** `build` fires on `merge_group` — full OCI build, real CI gate before merge.
 
-**Cache-warm path:** `cache-warm.yml` runs Monday and Thursday at 06:00 UTC and on manual dispatch. Builds the default variant against the remote CAS so merge-queue builds land on cache hits even after junction ref bumps or upstream `gnome-build-meta` rebuilds. Failures are non-blocking — the warm build is best-effort. Addresses the cold-start non-determinism documented in [common automation-audit ND1](https://github.com/projectbluefin/common/blob/main/docs/factory/automation-audit/non-deterministic-steps.md).
+**Cache-warm path:** `cache-warm.yml` runs Monday–Friday at 06:00 UTC and on manual dispatch. Builds the default variant against the remote CAS so merge-queue builds land on cache hits even after junction ref bumps or upstream `gnome-build-meta` rebuilds. Failures are non-blocking — the warm build is best-effort. Addresses the cold-start non-determinism documented in [common automation-audit ND1](https://github.com/projectbluefin/common/blob/main/docs/factory/automation-audit/non-deterministic-steps.md).
 
 ## Remote Cache Architecture
 
@@ -130,6 +130,44 @@ prior warm runs even when the exact hash differs.
 
 **Do not cancel or retrigger a cold aarch64 warm run.** Let it complete — the remote CAS
 population is the valuable output. Future merge-queue builds on aarch64 will benefit.
+
+## ⚠️ Zombie builds — cache-warm + main build concurrent CAS starvation (2026-06-23)
+
+**Symptom:** Main branch builds run for 3-6 hours without completing. BST appears to be fetching
+artifacts but never finishes. Subsequent Publish workflow skips because the triggering build never
+reaches `conclusion == 'success'`. `:testing` and `:stable` stop publishing.
+
+**Root cause:** `ab65ab7` (June 22) changed `cache-warm.yml` schedule from Mon/Thu to **daily at
+06:00 UTC**, but the workflow-level concurrency group remained `dakota-cache-warm` — a different
+group from the build workflow's `Build Bluefin dakota-refs/heads/main`. GitHub allowed both to run
+simultaneously. Each workflow launched 32 BST fetchers against `cache.projectbluefin.io:11002` →
+64 concurrent gRPC streams → CAS saturated → each individual artifact fetch took minutes instead of
+seconds → total build wall-time ballooned from ~90 min to 3-6+ hours (or until the 330-min
+GHA job timeout killed them).
+
+The `request-timeout: 180` per gRPC call meant each saturated fetch took up to 3 min × 5 retries =
+15 min per artifact. With hundreds of artifacts needing fetch, a 6-hour zombie is mathematically
+predictable.
+
+**Fix (committed 2026-06-23):**
+- `cache-warm.yml` x86 job: `group: bst-build-main` (was `dakota-cache-warm`)
+- `build.yml` workflow-level: `group: bst-build-{normalized-branch}` normalizing
+  `gh-readonly-queue/main/…` → `bst-build-main`, so push/main and merge_group/main share one slot
+- `cancel-in-progress: true` for push/dispatch events, `false` for merge_group
+
+These changes make cache-warm and real builds **mutually exclusive** in the same concurrency slot.
+
+**The aarch64 warm job is NOT affected** — it uses `dakota-cache-warm-aarch64` (separate arch,
+separate runner pool, does not compete with x86 CAS bandwidth).
+
+**If zombies recur:** Run pre-flight (AGENTS.md §9), cancel ALL in_progress builds, then re-check
+concurrency groups haven't been accidentally reverted by a squash PR.
+
+```bash
+# Verify concurrency groups are correct
+grep "group:" .github/workflows/build.yml .github/workflows/cache-warm.yml
+# Expected: build.yml has bst-build-* expression; cache-warm x86 has bst-build-main
+```
 
 ## ⚠️ Dangling Submodule — cache-warm and scheduled workflows silently die (2026-06-22)
 
