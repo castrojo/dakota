@@ -11,11 +11,11 @@ metadata:
 
 ## Overview
 
-Dakota has **two promotion layers**:
-1. `testing` → promotion PR → merge → `main` → publish → `:testing` / `:latest` / `:stable`
-2. Weekly human-gated stable cut via `production` Environment (2 approvals)
+Promotion from `testing` to `main` is **fully automated** — no human approval required at any stage.
 
-Promotion from `testing` to `main` is **fully automated** — no human approval required at the PR level. The only human gate is the weekly `production` Environment for stable.
+```text
+testing → promotion PR (cosign gate) → merge queue → main → :latest / :stable
+```
 
 Do not conflate "publish is healthy" with "stable promotion is healthy".
 

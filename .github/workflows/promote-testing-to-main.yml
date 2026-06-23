@@ -1,10 +1,9 @@
 name: Promote testing to main
 
 # Thin caller — logic lives in projectbluefin/actions/reusable-promote-squash.yml
-# Replaces the previous 183-line promote-testing-to-main.yml.
-#
-# Key improvement: squash branch is always rebuilt fresh on every run —
-# no staleness, no conflict drift, no merge friction.
+# Opens and maintains a squash promotion PR from testing → main.
+# Auto-merges via merge queue — no human approval required.
+# main requires 0 reviews; the merge queue runs validate via merge_group events.
 
 on:
   push:
@@ -37,9 +36,5 @@ jobs:
       cosign_identity_regexp: >-
         ^https://github\.com/projectbluefin/(dakota|actions)/\.github/workflows/
       run_e2e: false
-      use_merge_queue: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-      # run_e2e is intentionally false for dakota. The e2e quality gate lives
-      # at the weekly-testing-promotion.yml level with a GitHub 'production'
-      # Environment requiring 2 explicit human approvals — not at the PR gate
-      # level. The promotion PR here gets cosign verification only.
+      use_merge_queue: true
     secrets: inherit

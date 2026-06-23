@@ -37,7 +37,7 @@ Use when asked to review any Dakota PR, including feature PRs, dep-update PRs, o
 
 1. **Branch hygiene** — PR must branch from `upstream/main`, not a fork's local `main`. Verify with `git diff upstream/main...HEAD --stat` — it should be minimal and contain only the PR's changes.
 2. **Checklist compliance** — verify the relevant items from `pr-checklist.md` for the type of change (junction bump, patch, OCI, element, etc.).
-3. **CI gate status** — `validate` and `e2e` are required status checks on `main`. PRs targeting `testing` have no required status checks (testing is a loose integration branch; the quality gate is at `main` + `production` Environment). If CI hasn't run on a main-targeting PR, note it. If `e2e` was skipped (non-image paths), that counts as passing.
+3. **CI gate status** — `validate` is a required status check on `main` (via merge queue). PRs targeting `testing` have no required status checks — testing is a loose integration branch; the quality gate is at `main`. If CI hasn't run on a main-targeting PR, note it. If `e2e` was skipped (non-image paths), that counts as passing.
 4. **Scope discipline** — one logical change per PR. Junction bumps must not include patch modifications in the same commit.
 5. **Correctness** — element syntax, layer kind (`compose` not `stack`), cargo sources generated not hand-written, systemd units enabled via BST install commands.
 
@@ -121,7 +121,7 @@ code review misses.
 
 **What to compare:**
 - `cert-identity-regexp` anchoring — must be `^...$` end-anchored (dakoa is correct; bluefin/lts are not)
-- `environment: production` gate placement — should be on image **promotion**, not on release notes creation
+- cosign `cert-identity-regexp` anchoring — must be `^...$` end-anchored
 - SBOM handling — artifact-first with Syft fallback is stronger than always regenerating
 - TOCTOU patterns — digest-pinned promotions, single skopeo inspect calls
 
