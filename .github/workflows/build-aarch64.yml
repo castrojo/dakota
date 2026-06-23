@@ -28,6 +28,7 @@ on:
       - 'docs/**'
       - '**.md'
       - 'AGENTS.md'
+      - 'files/scripts/**'
   schedule:
     # Tuesday 04:00 UTC — same window as promote-testing-to-main.yml schedule
     - cron: '0 4 * * 2'
