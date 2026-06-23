@@ -109,11 +109,11 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    # Both variants build in parallel. NVIDIA is continue-on-error so its
-    # failure does not block the default image's merge or publication.
+    # Variants build serially — one BST build at a time per the hard rule.
+    # Shared runners and CAS write bandwidth cannot sustain concurrent builds.
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include:
           - variant: default
