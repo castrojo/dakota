@@ -209,10 +209,10 @@ git push upstream unblock:auto/promote-testing-to-main
 
 Remove the empty commit branch after the PR merges.
 
-### 11) Renovate automerge fails on workflow-file bumps — needs `workflows: write`
+### 11) Renovate automerge fails on workflow-file bumps — use Mergeraptor token
 
 When a Renovate PR updates an action SHA inside `.github/workflows/`, GitHub
-refuses to merge it without the `workflows` scope:
+refuses to merge it without `workflows` permission:
 
 ```
 GraphQL: refusing to allow a GitHub App to create or update workflow
@@ -222,13 +222,57 @@ GraphQL: refusing to allow a GitHub App to create or update workflow
 The automerge job silently swallows the error (warning: "PR merge skipped") and
 the PR stays open with `pr/needs-review`.
 
-**Fix — add `workflows: write` to `renovate-automerge.yml`:**
+**`workflows: write` is NOT the fix.** It is not a valid `GITHUB_TOKEN` scope —
+actionlint rejects it with `unknown permission scope "workflows"`. This is a hard
+rule in AGENTS.md. Do not add it. Do not suppress the actionlint error.
+
+**Correct fix:** The reusable `renovate-automerge.yml` in `projectbluefin/actions`
+uses the Mergeraptor GitHub App token internally, which has the `workflows` GitHub
+App permission. If workflow-file bumps are still not auto-merging, check that:
+1. `MERGERAPTOR_APP_ID` and `MERGERAPTOR_PRIVATE_KEY` secrets are set on the repo
+2. The Mergeraptor app has `workflows` permission granted in org settings
+
+### 11b) Branch-sync workflows that push workflow files need the Mergeraptor token
+
+`sync-next-from-main.yml` merges `main` into `next`. When that merge includes
+changes to `.github/workflows/` files, the push fails:
+
+```
+remote: refusing to allow a GitHub App to create or update workflow
+`.github/workflows/build.yml` without `workflows` permission
+```
+
+`GITHUB_TOKEN` with `contents: write` cannot push workflow file changes —
+GitHub requires a token with `workflows` scope, and `workflows: write` is not
+a valid `GITHUB_TOKEN` permission (actionlint error: `unknown permission scope
+"workflows"`).
+
+**Fix:** Use the Mergeraptor GitHub App token (which has `workflows` permission
+as an installed GitHub App) for checkout and push:
+
 ```yaml
 permissions:
-  contents: write
-  pull-requests: write
-  workflows: write
+  contents: read  # NOT contents: write — app token handles the push
+
+jobs:
+  sync-next:
+    steps:
+      - name: Get mergeraptor token
+        id: app-token
+        uses: actions/create-github-app-token@<sha> # v3
+        with:
+          app-id: ${{ secrets.MERGERAPTOR_APP_ID }}
+          private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
+
+      - name: Checkout next
+        uses: actions/checkout@<sha> # v6
+        with:
+          ref: next
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 ```
+
+This pattern is also used in `track-bst-sources.yml` and `track-next-junctions.yml`.
 
 ### 12) `sync-main-to-testing` resets testing to main — CI-only PRs to testing get wiped
 
@@ -278,7 +322,7 @@ CI-only. The image is still published correctly.
 - `base_branch` not passed to `reusable-renovate-automerge` or passed with wrong value
 - bot actors excluded from `pr-autoupdate` while their PRs go behind
 - `validate` job condition is `pull_request` only — blocked in merge queue for bot PRs
-- `renovate-automerge` missing `workflows: write` — workflow-file bumps silently strand
+- `renovate-automerge` missing Mergeraptor token — workflow-file bumps silently strand
 - landing a CI feature on `testing` and assuming it survives the next sync-main-to-testing
 - `pr-triage` gate only allowing `renovate/*` to target `testing`, blocking feature PRs
 - rapid-fire PR merges cancelling each other's pending builds (manual dispatch needed)
@@ -295,5 +339,5 @@ CI-only. The image is still published correctly.
 - [ ] `reusable-renovate-automerge` calls omit `base_branch` (default is `testing`) or pass the correct branch
 - [ ] `pr-autoupdate` has no actor exclusions that would strand bot PRs
 - [ ] `validate` job runs on both `pull_request` and `merge_group` (not just `pull_request`)
-- [ ] `renovate-automerge.yml` has `workflows: write` in top-level permissions
+- [ ] `renovate-automerge.yml` does NOT have `workflows: write` (invalid scope — actionlint rejects it; use Mergeraptor app token instead)
 - [ ] CI-only changes that must survive sync are either landed on main directly or promoted before the next unrelated main push
