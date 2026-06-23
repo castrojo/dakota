@@ -235,14 +235,16 @@ PRs created by a workflow using `GITHUB_TOKEN` do NOT fire `pull_request` events
 
 ## Ruleset
 
-Ruleset: `main-review-required-with-renovate-bypass`
+Ruleset: `main-merge-queue-no-review` (id: 18008292)
 
 | Rule | Value |
 |---|---|
-| Required reviews | 1 approving review |
-| Required status checks | `validate` + `e2e` |
-| Merge queue | ALLGREEN, max_entries_to_build=1, check_response_timeout=120 min |
+| Required reviews | 0 (fully automated — no human approval) |
+| Required status checks | `validate` (strict) |
+| Merge queue | SQUASH, ALLGREEN, max_entries_to_build=2, timeout=120 min |
 | Bypass actors | OrganizationAdmin, Renovate, mergeraptor |
+
+**`action_required` on promotion PR checks is expected.** The org blocks `github-actions[bot]`-triggered `pull_request` workflow runs. `validate` and all other PR checks show `action_required` on every promotion PR — this is normal and not a failure. The merge queue fires `merge_group` events which bypass the bot approval policy and run `validate` cleanly.
 
 **e2e change detection:** `e2e` only tests PRs touching `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf`. For all other paths (e.g. workflow pin bumps) the `e2e` job is skipped, which satisfies the required check. The `should-run` job uses `git diff` against the PR base — no `paths:` filter on the trigger.
 
@@ -1818,8 +1820,8 @@ gh api repos/projectbluefin/dakota/branches/main/protection \
   "required_status_checks": {"strict": false, "checks": [{"context": "validate", "app_id": -1}]},
   "enforce_admins": false,
   "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true, "require_code_owner_reviews": true,
-    "required_approving_review_count": 1
+    "dismiss_stale_reviews": false, "require_code_owner_reviews": false,
+    "required_approving_review_count": 0
   },
   "restrictions": null
 }
