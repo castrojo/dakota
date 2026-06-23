@@ -27,14 +27,21 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Concurrency: per-ref isolation for all events.
-# - PRs: cancel-in-progress: true drops stale validate runs when a new
-#   push arrives. Safe for other events — merge_group/schedule/dispatch
-#   each use distinct refs and are unaffected by this flag.
-# - merge_group / schedule / dispatch: per-ref queuing, never cancelled.
+# Concurrency: one BST build per branch at a time.
+# push/main and merge_group/main share group "bst-build-main" so they
+# never run simultaneously and starve the remote CAS.
+# cancel-in-progress: true for push/dispatch so stale builds are dropped
+# when a newer commit arrives. merge_group runs queue (false) so in-flight
+# gate checks are not cancelled by a concurrent push.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    bst-build-${{
+      startsWith(github.ref_name, 'gh-readonly-queue/main') && 'main' ||
+      startsWith(github.ref_name, 'gh-readonly-queue/testing') && 'testing' ||
+      startsWith(github.ref_name, 'gh-readonly-queue/next') && 'next' ||
+      github.ref_name
+    }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
   # ── Fast PR validation ───────────────────────────────────────────────────

@@ -24,7 +24,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: dakota-cache-warm
+  # Shared with build.yml so cache-warm and real builds never run together.
+  # cancel-in-progress: false — warm build queues behind any real build,
+  # and a real build (cancel-in-progress: true) will cancel cache-warm.
+  group: bst-build-main
   cancel-in-progress: false
 
 jobs:
