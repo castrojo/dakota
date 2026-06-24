@@ -365,6 +365,38 @@ if: inputs.dry_run != true && github.event_name == 'workflow_run'
 **Diagnosis:** Search the workflow file for all `if:` conditions containing
 `${{ }}` that reference `inputs`. All of them need the wrapper removed.
 
+### 15b) Undeclared input passed to reusable workflow — startup_failure
+
+**Symptom:** `startup_failure` with zero jobs, identical to pattern 15. Actionlint is clean.
+YAML parses correctly. The fix for pattern 15 (removing `${{ }}`) doesn't resolve it.
+
+**Root cause:** The caller workflow passes an input via `with:` that the reusable workflow
+does NOT declare in its `on.workflow_call.inputs:`. GitHub validates the workflow graph
+at dispatch time and fails before any jobs start.
+
+```yaml
+# BROKEN — build_run_id not declared in reusable-release.yml
+uses: org/actions/.github/workflows/reusable-release.yml@v1
+with:
+  build_run_id: ${{ github.event.workflow_run.id }}   # undeclared input
+  build_workflow: publish.yml
+
+# CORRECT — only pass declared inputs
+uses: org/actions/.github/workflows/reusable-release.yml@v1
+with:
+  build_workflow: publish.yml
+```
+
+**Fix:** Remove the undeclared input from the caller's `with:` block. If the feature is
+needed, add the input declaration to the reusable workflow's `on.workflow_call.inputs:` first.
+
+**Why pattern 15 fixes don't help:** Removing `${{ }}` from `if:` conditions is correct
+but does not prevent graph-validation failure on undeclared inputs.
+
+**Actionlint does not catch this.** YAML is valid, actionlint passes, error is runtime-only.
+
+**Verification:** Dispatch the fixed workflow and confirm jobs appear (not `startup_failure` with 0 jobs).
+
 ## Red Flags
 
 - `permissions: {}` on a reusable workflow caller
@@ -382,6 +414,8 @@ if: inputs.dry_run != true && github.event_name == 'workflow_run'
 - `pr-triage` gate only allowing `renovate/*` to target `testing`, blocking feature PRs
 - rapid-fire PR merges cancelling each other's pending builds (manual dispatch needed)
 - `if: ${{ inputs.X }}` in a job condition on a workflow that can be triggered by `workflow_run`
+- `with:` block in a reusable workflow call passing inputs not declared in the target workflow
+- `startup_failure` that persists after fixing all `${{ }}` in `if:` conditions (check undeclared inputs)
 
 ## Verification
 
@@ -398,32 +432,3 @@ if: inputs.dry_run != true && github.event_name == 'workflow_run'
 - [ ] `renovate-automerge.yml` does NOT have `workflows: write` (invalid scope — actionlint rejects it; use Mergeraptor app token instead)
 - [ ] CI-only changes that must survive sync are either landed on main directly or promoted before the next unrelated main push
 - [ ] All job `if:` conditions in dual-trigger workflows (`workflow_run` + `workflow_dispatch`) use bare expressions, not `${{ }}` wrappers
-
-### 15b) Undeclared input passed to reusable workflow — startup_failure (2026-06-24)
-
-**Root cause of execute-release startup_failure since PR #1086.**
-
-When a caller workflow passes an input via `with:` to a `uses:` (reusable workflow call)
-that the reusable workflow does NOT declare in its `on.workflow_call.inputs:`, GitHub
-validates this at dispatch time and returns `startup_failure` with zero jobs and no log output.
-
-**Pattern that causes startup_failure:**
-```yaml
-# caller (execute-release.yml)
-uses: org/actions/.github/workflows/reusable-release.yml@v1
-with:
-  build_run_id: ${{ github.event.workflow_run.id }}   # ← NOT declared in reusable-release.yml
-  build_workflow: publish.yml
-```
-
-**Fix:** Remove the undeclared input. If the reusable workflow needs run-ID pinning,
-add the input to the reusable workflow's `on.workflow_call.inputs:` first.
-
-**Why PR #1089 and #1091 didn't fix it:** Those PRs fixed `if:` expression syntax issues
-(real but secondary bugs). The undeclared input was the startup_failure root cause —
-no `if:` fix can prevent validation failure on the workflow graph before jobs start.
-
-**Actionlint does not catch this.** YAML parses cleanly. The error only manifests at runtime.
-
-**Verification after fix:** Run `workflow_dispatch` on the fixed workflow and confirm
-`freshness-check` job appears in the run (not `startup_failure` with 0 jobs).
