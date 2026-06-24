@@ -9,6 +9,16 @@ metadata:
 
 # CI Reference
 
+> **HISTORICAL — superseded by `ci.md` and `release-promotion.md`. Retained for archaeology only.**
+>
+> This file documents workflows and patterns from the pre-OCI-native era, including
+> deleted workflows (`promote-testing-to-main.yml`, `pr-release-gate.yml`,
+> `sync-main-to-testing.yml`, `cache-warm.yml`). Sections may describe workflows
+> that no longer exist, daily schedules that were replaced by `build.yml`'s 13:00 UTC
+> trigger, or promotion flows that were replaced by `execute-release.yml`. For the
+> current workflow inventory, read `ci.md` and `workflow-map.md`. For current
+> promotion flow, read `release-promotion.md`.
+
 ## Overview
 
 This is the **deep-cut archive**, not the load-first CI skill.
@@ -42,7 +52,7 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 | Build timeout | 330 min (job: 360 min) |
 | Remote cache server | `cache.projectbluefin.io:11002` |
 | Cache auth | mTLS — `CASD_CLIENT_CERT` (repo variable) + `CASD_CLIENT_KEY` (secret) |
-| Published image | `ghcr.io/projectbluefin/dakota:{testing,latest,stable}` and `:$SHA` |
+| Published image | `ghcr.io/projectbluefin/dakota:{testing,stable,next,btw}` and `:$SHA` |
 | Build logs artifact | `buildstream-logs-x86_64-<variant>` (7-day retention) |
 | Trigger (validate) | `pull_request` — `bst show --deps all`, no CAS |
 | Trigger (build) | `merge_group`, `workflow_dispatch` (no daily schedule) |

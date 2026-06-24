@@ -11,7 +11,7 @@ metadata:
 
 ## Overview
 
-Promotion from `testing` to `:stable`/`:latest` is **fully automated and daily** — no human approval required at any stage.
+Promotion from `testing` to `:stable` is **fully automated and daily** — no human approval required at any stage.
 
 ```text
 testing (trunk) → build.yml → publish.yml → :testing tag
@@ -19,7 +19,7 @@ testing (trunk) → build.yml → publish.yml → :testing tag
                                          execute-release.yml (workflow_run from publish)
                                          SHA freshness check → cosign verify → boot-check
                                                   │
-                                         :stable / :latest + fast-forward main bookmark
+                                         :stable + fast-forward main bookmark
 ```
 
 `main` is a release bookmark only. It is fast-forwarded by `execute-release.yml` after each successful promotion. Do not open PRs against `main`.
@@ -34,7 +34,7 @@ Use when the task mentions:
 - SHA-based freshness check or `workflow_run` from `publish.yml`
 - `main-bookmark-protection` ruleset
 - cosign verify in the release path
-- stable release, `:latest`, `:stable`, or daily promotion flow
+- stable release, `:stable`, or daily promotion flow
 - `testing-merge-queue-no-review` ruleset
 
 ## When NOT to Use
@@ -52,7 +52,7 @@ Use when the task mentions:
    - `execute-release.yml` SHA freshness check
    - cosign verify `:testing`
    - boot-check gate
-   - skopeo copy `:testing` → `:stable`/`:latest`
+   - skopeo copy `:testing` → `:stable`
    - fast-forward `main` bookmark
 3. **`execute-release.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch.**
    It checks whether the SHA published as `:testing` differs from the current `:stable`. If
@@ -79,7 +79,7 @@ push to testing (BST-affecting paths)
           → skip if equal (already up to date)
           → cosign verify :testing
           → boot-check gate
-          → skopeo copy :testing → :stable / :latest
+          → skopeo copy :testing → :stable
           → fast-forward main bookmark
           → create GitHub Release
 ```
@@ -93,11 +93,16 @@ Ruleset: `testing-merge-queue-no-review`
 | Rule | Value |
 |---|---|
 | Required reviews | 0 (fully automated) |
-| Required status checks | `validate` + `e2e` |
+| Required status checks | `validate` (single context, integration_id 15368) |
 | Merge queue | enabled |
 | Force push | blocked |
 | Deletion | blocked |
 | Default branch | Yes — `testing` is the GitHub default branch |
+
+**Ground truth (verified via `gh api repos/projectbluefin/dakota/rulesets/18053489`):**
+- The only required status check context on `testing` is `validate`.
+- `e2e` and `Boot check — gate` from `publish.yml` are **not** ruleset-enforced gates. They run as part of `publish.yml` post-merge and gate stream-tag movement / promotion, not merge-queue entry.
+- If you want `Boot check — gate` to block merge-queue entry, that is a Design Gate change to the ruleset — do not modify in passing.
 
 ### main (release bookmark)
 
@@ -273,3 +278,84 @@ flow (issue 1073). The key differences:
 - **ARM trigger change:** `build-aarch64.yml` now fires via `workflow_run` from
   `publish.yml` — not a Tuesday cron. This serializes ARM after x86 CAS writes
   complete, preventing CAS contention.
+
+## Rollback
+
+When a promoted `:stable` image regresses behaviour or ships a security issue
+that cannot wait for the next promotion cycle, use the
+[`rollback-stable.yml`](../../.github/workflows/rollback-stable.yml) workflow
+instead of running `skopeo copy` from a laptop. The workflow re-uses the same
+cosign identity gate that gates promotion, so a rollback cannot smuggle in an
+image that was never legitimately published.
+
+### When to use it
+
+- A bug or regression escaped the testing → stable promotion and is hitting
+  users on `:stable` / `:stable-multiarch`.
+- A supply-chain incident requires reverting to a known-good digest fast.
+- **Not** for cosmetic / "I'd rather have yesterday's build" preferences —
+  rollback breaks the linear `main`-bookmark history users expect.
+
+### How to invoke
+
+1. Find a target SHA that previously held `:stable`. Successful
+   `execute-release.yml` runs are the canonical source:
+
+   ```bash
+   gh run list \
+     --repo projectbluefin/dakota \
+     --workflow execute-release.yml \
+     --status success \
+     --json headSha,createdAt,displayTitle \
+     --limit 10
+   ```
+
+   Pick the `headSha` of the run *before* the regression landed.
+
+2. Dispatch the workflow:
+
+   ```bash
+   gh workflow run rollback-stable.yml \
+     --repo projectbluefin/dakota \
+     --ref main \
+     -f target_sha=<sha> \
+     -f reason="<short reason — appears in audit release notes>" \
+     -f include_multiarch=true \
+     -f dry_run=true
+   ```
+
+3. Read the `verify` job step summary. If digests resolve and cosign verify
+   passes, re-dispatch with `dry_run=false` to actually move the tags.
+
+### Defaults that matter
+
+- **`dry_run` defaults to `true`.** Humans must explicitly pass `dry_run=false`
+  to live-rollback. This is intentional — a one-button live rollback under
+  pressure is exactly when foot-guns fire.
+- **`include_multiarch` defaults to `true`.** Leave it on unless ARM is
+  intentionally being held back; otherwise `:stable-multiarch` will continue
+  to advertise the bad image to `aarch64` users.
+- **Concurrency group is `dakota-execute-release`**, identical to the
+  promotion workflow. A rollback cannot race with a promotion in flight, and
+  vice versa.
+
+### What the workflow guarantees
+
+- `dakota:${target_sha}` and `dakota-nvidia:${target_sha}` both exist (pair
+  invariant — refuses to roll back a partial set).
+- Both images cosign-verify against the anchored
+  `publish.yml@refs/heads/(testing|gh-readonly-queue/testing/.+)` identity.
+- Tags are moved with `skopeo copy --preserve-digests --all`, so the digest
+  served by `:stable` is exactly the digest cosign signed.
+- A GitHub Release (`rollback-<sha>-<unix_ts>`, marked prerelease) is created
+  to keep an audit trail of the operator, reason, timestamp, and digests.
+
+### What it does *not* do
+
+- It does **not** rewind the `main` bookmark. `main` continues to point at the
+  most recent promoted SHA. The image stream and the git bookmark are
+  intentionally decoupled in this flow — if the regression also needs a code
+  revert, open a normal PR against `testing` and let the promotion pipeline
+  re-promote.
+- It does **not** delete the bad image. The previously-stable digest stays in
+  GHCR (under its SHA tag) for forensics.
