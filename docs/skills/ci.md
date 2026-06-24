@@ -173,7 +173,14 @@ with:
 
 Local casd uses runner disk. Pulls still read from `gbm.gnome.org:11003` and
 `cache.projectbluefin.io:11001` (read-only). Missing elements build from source locally.
-**Re-enable both once CAS is stable** — one-line revert.
+
+**DO NOT re-enable these flags.** `cache.projectbluefin.io:11002` is still unstable.
+Changing these flags back to `'true'` is a human decision — not a task for agents.
+This workaround has been reverted twice by agents misreading TODO comments. There is
+no TODO. The flags stay `'false'` until a human confirms the server is stable.
+
+*Agent re-enable history:* PR #1092 (partial), #1093 (full fix), re-enabled by agent
+commit `7d2a82d`, re-fixed by PR #1098. Do not repeat this cycle.
 
 **Server recovery (Hetzner AX102-U):**
 ```bash
