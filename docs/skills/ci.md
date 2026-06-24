@@ -132,6 +132,61 @@ The rationalizations that have caused real production failures:
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
 
+### The Only Caching Model That Works: Build Local, Push Once
+
+**This is the primary BST caching strategy for Dakota. Everything else is a variation or a failure mode.**
+
+```
+build phase:   runner local disk  ←── reads from cache.projectbluefin.io:11001 (read-only)
+                                  ←── reads from gbm.gnome.org:11003 (upstream elements)
+                                       builds missing elements locally
+                                       stores finished artifacts on runner disk
+
+push phase:    runner local disk  ──► cache.projectbluefin.io:11002 (one targeted push)
+               bst artifact push --deps none <element>
+               (runs after build completes successfully)
+```
+
+**Why this is the only way BST makes sense here:**
+
+We have one builder. One CAS server. The server is rate-limited and can sustain one build
+at a time. The build can take 4–6 hours for a cold start.
+
+When `enable-push: true` (streaming mode), BST writes every artifact blob to the remote CAS
+*as it builds* — a sustained 4-hour write stream over gRPC. One dropped connection kills the
+entire build and leaves partial blobs in the cache. The next build starts with a *dirtier*
+cache than if no push had happened at all. The factory destroys itself.
+
+When `enable-push: false` (local-first mode):
+- Build reads upstream elements from the cache (fast, read-only, low traffic)
+- Every element that misses the remote cache is built locally and stored on runner disk
+- The build runs to completion — no remote dependency during the build phase
+- One explicit `bst artifact push` at the end writes the finished, complete artifact set
+- The next build starts with a clean, complete warm cache
+
+**The explicit push step in `build.yml`:**
+
+```yaml
+- name: Push OCI artifact to remote CAS
+  env:
+    BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+  run: |
+    just bst artifact push --deps none ${{ matrix.element }}
+```
+
+`--deps none` pushes only the top-level OCI element. BST artifact push is idempotent —
+already-cached elements are skipped. This step runs after a successful build and populates
+the cache with exactly what the next build needs to start warm.
+
+**What "warm cache" means in practice:** A warm build skips the element graph entirely for
+unchanged upstream refs and only rebuilds elements whose inputs changed since the last push.
+On a typical nightly run (gnome-build-meta delta) this is ~30 minutes vs ~6 hours cold.
+Every cancelled or failed build that did not complete its push step is a full cold-start cost
+for the next run.
+
+**Rule:** Never add a `storage-service` block or `remote-execution` block to `buildstream-ci.conf`
+during the build phase. Reads are fine. Streaming writes during the build phase are not.
+
 ### mTLS Authentication
 
 | Variable | Type | Content |
