@@ -214,8 +214,8 @@ jobs:
           # remote-execution removes that dependency entirely. Local casd uses
           # runner disk. Pulls still read from gbm.gnome.org:11003 and :11001.
           # TODO: re-enable both once cache.projectbluefin.io:11002 is stable.
-          enable-remote-execution: 'false'
-          enable-push: 'false'
+          enable-remote-execution: 'true'
+          enable-push: 'true'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
