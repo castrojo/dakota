@@ -206,11 +206,12 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Re-enabled 2026-06-24 after cache.projectbluefin.io:11002 confirmed
-          # back up. If builds die at ~68% (grpc StatusCode.UNAVAILABLE) again,
-          # set BOTH back to 'false'. See docs/skills/ci.md for full model.
-          enable-remote-execution: 'true'
-          enable-push: 'true'
+          # Build local, push once. Streaming writes (enable-push: true) cause
+          # sustained gRPC write streams that drop mid-build and corrupt the cache.
+          # The explicit 'Push OCI artifact to remote CAS' step below handles the
+          # cache write after a successful build. See docs/skills/ci.md.
+          enable-remote-execution: 'false'
+          enable-push: 'false'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
