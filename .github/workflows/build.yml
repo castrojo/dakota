@@ -207,6 +207,14 @@ jobs:
         uses: ./.github/actions/generate-bst-ci-config
         with:
           enable-remote-execution: 'true'
+          # Disable remote push so local casd uses runner disk instead of routing
+          # through cache.projectbluefin.io:11002 as storage-service. The remote
+          # CAS drops connections mid-build (src-push: Connection refused) after
+          # ~3.5 hours, killing the build at 68% even though all pulls succeed.
+          # Pulls still read from gbm.gnome.org:11003 and :11001 (read-only).
+          # Re-enable once the CAS server connectivity is stable.
+          # TODO: re-enable push once cache.projectbluefin.io:11002 is fixed.
+          enable-push: 'false'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
