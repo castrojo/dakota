@@ -206,18 +206,11 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # HARD RULE — DO NOT RE-ENABLE EITHER FLAG.
-          # cache.projectbluefin.io:11002 drops connections mid-build after
-          # ~3.5 hours (grpc StatusCode.UNAVAILABLE). When enable-push is true,
-          # storage-service routes local casd through :11002 and the build dies
-          # at ~68% completion. When enable-remote-execution is true, BST adds
-          # a remote-execution block that also routes through :11002.
-          # Result: 3-6 hour wasted builds, hot cache destroyed.
-          # Pulls still read from gbm.gnome.org:11003 and :11001 (unaffected).
-          # Both flags stay false until cache.projectbluefin.io:11002 is confirmed
-          # stable under sustained load. Changing these flags is a human decision.
-          enable-remote-execution: 'false'
-          enable-push: 'false'
+          # Re-enabled 2026-06-24 after cache.projectbluefin.io:11002 confirmed
+          # back up. If builds die at ~68% (grpc StatusCode.UNAVAILABLE) again,
+          # set BOTH back to 'false'. See docs/skills/ci.md for full model.
+          enable-remote-execution: 'true'
+          enable-push: 'true'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
