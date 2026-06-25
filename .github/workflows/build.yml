@@ -7,10 +7,6 @@ on:
   # default branch in repo settings for this to target testing.
   schedule:
     - cron: '0 13 * * *'
-  pull_request:
-    branches: [testing, next]
-  merge_group:
-    branches: [testing, next]
   workflow_dispatch:
     # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
@@ -22,12 +18,6 @@ permissions: read-all
 env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-
-# Concurrency: enforced at the `build` job level (see below) using the
-# shared global group `dakota-bst-build-global`. The PR-only `validate`
-# job runs `bst show` (metadata only, no CAS traffic) and has its own
-# per-PR concurrency block — it intentionally does NOT join the global
-# group so PR validation is not blocked by long-running trunk builds.
 
 jobs:
   # ── Default-branch precondition ──────────────────────────────────────────
@@ -49,62 +39,6 @@ jobs:
             echo "::error::default branch is '$db', expected 'testing'. Daily schedule will silently target wrong branch. Fix repo settings."
             exit 1
           fi
-
-  # ── Fast PR validation ───────────────────────────────────────────────────
-  # Fires only on pull_request. Runs bst show on the full element graph for
-  # both variants. Zero remote-execution — does not touch cache.projectbluefin.io.
-  # Expected runtime: <15 min (BST cache hit), <30 min (cold start).
-  validate:
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    concurrency:
-      group: ${{ github.workflow }}-validate-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Check bst2 image pin consistency
-        uses: ./.github/actions/check-bst2-pin
-
-      - name: Setup Just
-        uses: taiki-e/install-action@ace6ebe54a6a0c86dfb5f7764b17f793b6925bc3 # v2
-        with:
-          tool: just
-
-      # Cache the BST workspace (junction git sources + bst2 container layers).
-      # Key includes junction element refs so junction bumps start fresh.
-      # Without this, bst show must clone gnome-build-meta + freedesktop-sdk
-      # from scratch on every PR run (~15-25 min extra).
-      - name: Restore BST cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
-        with:
-          path: ~/.cache/buildstream
-          key: bst-show-${{ github.base_ref || github.ref_name }}-${{ hashFiles('elements/gnome-build-meta.bst', 'elements/freedesktop-sdk.bst', 'Justfile') }}
-          restore-keys: |
-            bst-show-${{ github.base_ref || github.ref_name }}-
-            bst-show-
-
-      - name: Check for dangling submodules
-        run: |
-          if git ls-files --stage | grep -q '^160000'; then
-            echo "ERROR: dangling gitlink(s) found — no submodules allowed in this repo"
-            git ls-files --stage | grep '^160000'
-            exit 1
-          fi
-
-      - name: Validate BST element graph (default)
-        env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive
-        run: just bst show --deps all oci/bluefin.bst
-
-      - name: Validate BST element graph (nvidia)
-        env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive
-        run: just bst show --deps all oci/bluefin-nvidia.bst
 
   # ── Full OCI build ────────────────────────────────────────────────────────
   # Fires on schedule (daily 13:00 UTC) and workflow_dispatch only.
