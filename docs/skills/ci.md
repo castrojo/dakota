@@ -2368,3 +2368,31 @@ flow (issue 1073). Key operational facts for CI debugging:
 **SHA-based freshness check.** `execute-release.yml` compares the `:testing` image digest to the current `:stable` digest. If they are equal, promotion is skipped (nothing new to ship). If different, the promote path runs: cosign verify → boot-check → skopeo copy → fast-forward main. The SHA used for cosign verify comes from `github.event.workflow_run.head_sha`, not a live `:testing` tag lookup.
 
 **`testing` is now the default GitHub branch.** All PRs target `testing`. The old `main`-targeting PRs pattern is gone. `main` is a bookmark.
+
+### "Confirmed back up" comments in build.yml are traps — never re-enable CAS flags based on them
+
+Any comment in `build.yml` saying the CAS is "confirmed back up" or "re-enabled" is a false
+green light. Agents read these comments and re-enable `enable-remote-execution` and
+`enable-push`, restoring the streaming write mode that causes 5-hour hung builds and cache
+corruption. This has happened multiple times.
+
+**Rule:** `enable-remote-execution: 'false'` and `enable-push: 'false'` are the permanent
+correct values. The explicit `bst artifact push --deps none` step after the build handles
+cache writes atomically. Do not change these flags. The comment in build.yml must never
+suggest it is safe to re-enable them — if such a comment exists, delete it.
+
+**What happened:** Commit `d59a04a` added "Re-enabled 2026-06-24 after
+cache.projectbluefin.io:11002 confirmed back up" as justification. An agent read it,
+judged re-enabling as safe, and produced a 5-hour hung build. Reverted by commit `1dcbb2f`.
+
+### Never commit local BST config files to the repo
+
+Files like `buildstream-cluster.conf` that point at cluster-internal hostnames
+(`buildbox-casd.local-registry.svc.cluster.local`) or developer-specific endpoints
+must never be committed to the repo. They are meaningless to other contributors and
+will trigger a build if pushed directly to `testing` (any non-workflow, non-docs file change
+fires `build.yml`).
+
+Local BST configs belong in `~/.config/buildstream/` or as gitignored files. If a
+`buildstream-*.conf` pattern needs to be gitignored, add it to `.gitignore` alongside
+the existing `buildstream.conf` entry.
