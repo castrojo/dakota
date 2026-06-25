@@ -79,7 +79,8 @@ Successful publish.yml on testing   ← PARALLEL, DECOUPLED
 
 | Workflow | Owns | Normal trigger |
 |---|---|---|
-| `.github/workflows/build.yml` | BST build into remote CAS | `schedule: daily 13:00 UTC`, `workflow_dispatch`. `validate` job runs on `pull_request` and `merge_group`; `build` job runs on `schedule` and `workflow_dispatch` only — merge_group builds were always cancelled by PR merge before completion. |
+| `.github/workflows/build.yml` | BST build into remote CAS | `schedule: daily 13:00 UTC`, `workflow_dispatch` **only**. No push, no pull_request, no merge_group. |
+| `.github/workflows/validate.yml` | PR/merge_group graph validation (`bst show`) | `pull_request`, `merge_group`. Job named `validate` — satisfies the required status check. |
 | `.github/workflows/build-aarch64.yml` | aarch64 OCI build + GHCR push | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch`. Fully decoupled — never in `needs:` of publish/promote/release. |
 | `.github/workflows/publish.yml` | export, sign, boot-check, promote tags | `workflow_run` from build |
 | `.github/workflows/publish-smoke.yml` | observational smoke only | `workflow_run` from publish |

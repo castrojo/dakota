@@ -1608,20 +1608,23 @@ future `projectbluefin/.*@<sha>` commits.
 **External actions** (`actions/checkout`, `taiki-e/install-action`, etc.) remain
 SHA-pinned — that policy is unchanged and correct.
 
-### build.yml push trigger must include `testing` for `:testing` images (2026-06-13)
+### build.yml is cron/dispatch ONLY — no push or PR triggers (2026-06-25)
 
-`build.yml` had `push: branches: [main, next]` — `testing` was missing.
-`publish.yml` already listed `testing` in its `workflow_run.branches` filter
-and had logic to publish `:testing` on testing-branch builds, but that path
-was dead because `build.yml` never triggered on push to `testing`.
+`build.yml` must have exactly two triggers: `schedule` (daily 13:00 UTC) and `workflow_dispatch`.
+Nothing else. No `push:`, no `pull_request:`, no `merge_group:`.
 
-**Result:** `:testing` images were never updated by Renovate merges to testing.
-The promote PR was always building from stale image content.
+**Why:** Every push trigger on a 5-hour BST build creates a "Build Bluefin dakota" run from
+every checkin, every PR merge, and every Renovate commit. These either waste runners (if the
+build job is guarded) or cause concurrent CAS contention (if it's not). Both outcomes are bad.
+The factory has 24 hours per day and one scheduled slot at 13:00 UTC. That's it.
 
-**Fix (PR #830):** add `testing` to `build.yml`'s push trigger. The build job
-runs on `event_name != 'pull_request'`, so push-to-testing fires the full build.
-BST artifact cache steps remain gated on `merge_group || schedule || workflow_dispatch`
-(intentional quota management) — they skip for plain pushes, which is fine.
+**PR/merge_group validation** lives in `validate.yml` (separate workflow, job named `validate`).
+The required status check is the job name `validate`, not the workflow name — so moving it to
+`validate.yml` satisfies the branch ruleset unchanged.
+
+**Do not add push triggers back.** The old 2026-06-13 lesson ("push trigger must include testing")
+predates the cron-only redesign and is superseded by this rule. Renovate PRs and merge-queue
+merges do NOT need to trigger builds — the daily cron picks up all changes.
 
 ### publish.yml: 4-job pipeline after speed-up refactor (2026-06-12)
 
@@ -2452,10 +2455,30 @@ judged re-enabling as safe, and produced a 5-hour hung build. Reverted by commit
 
 Files like `buildstream-cluster.conf` that point at cluster-internal hostnames
 (`buildbox-casd.local-registry.svc.cluster.local`) or developer-specific endpoints
-must never be committed to the repo. They are meaningless to other contributors and
-will trigger a build if pushed directly to `testing` (any non-workflow, non-docs file change
-fires `build.yml`).
+must never be committed to the repo. They are meaningless to other contributors.
 
 Local BST configs belong in `~/.config/buildstream/` or as gitignored files. If a
 `buildstream-*.conf` pattern needs to be gitignored, add it to `.gitignore` alongside
 the existing `buildstream.conf` entry.
+
+### When CI is broken, push directly to the branch — no PRs (2026-06-25)
+
+When the factory is broken, the PR workflow IS the problem. Every PR requires
+`validate` to pass, which requires a working merge queue, which requires builds.
+Opening PRs to fix broken CI creates a catch-22.
+
+**Rule:** Push fixes directly to `testing` or `next` with `git push upstream branch`.
+The repo admin bypasses branch protection. This is not optional when the factory is down.
+
+```bash
+git checkout upstream/testing -b fix/my-ci-fix
+# make changes
+git push upstream fix/my-ci-fix:testing
+```
+
+Apply the same fix to `next` immediately after:
+```bash
+git checkout upstream/next -b fix/my-ci-fix-next
+git checkout upstream/testing -- .github/workflows/affected.yml
+git push upstream fix/my-ci-fix-next:next
+```
