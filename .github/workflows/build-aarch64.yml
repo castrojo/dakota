@@ -6,7 +6,6 @@ name: Build Bluefin dakota (aarch64)
 #   - ARM NEVER blocks an x86_64 build, publish, promote, or release.
 #   - No job in publish.yml, promote-testing-to-main.yml, or execute-release.yml
 #     depends on this workflow. Decoupling is structural, not just continue-on-error.
-#   - Separate concurrency group so aarch64 queue never starves x86_64 runners.
 #   - No remote execution (no RE service for ARM); enable-push: true so artifacts
 #     land in the remote CAS for subsequent builds and warm-cache runs.
 #
@@ -36,7 +35,7 @@ env:
 
 # Per-ref isolation. ARM failures never cancel or affect x86_64 concurrency groups.
 concurrency:
-  group: build-aarch64-${{ github.ref }}
+  group: dakota-bst-build-global
   cancel-in-progress: false
 
 jobs:

@@ -37,6 +37,9 @@ runs:
 
         cachedir: /root/.cache/buildstream
         logdir: /src/logs
+
+        cache:
+          cache-buildtrees: never
         BSTCONF
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
@@ -97,7 +100,6 @@ runs:
           # Build jobs use it so artifacts are pushed directly to the remote CAS.
           if [[ "${ENABLE_PUSH:-true}" == "true" ]]; then
             cat >> buildstream-ci.conf <<'BSTCONFSTORAGE'
-        cache:
           storage-service:
             url: https://cache.projectbluefin.io:11002
             connection-config:
@@ -108,7 +110,7 @@ runs:
             auth:
               client-key: /src/client.key
               client-cert: /src/client.crt
-        BSTCONFSTORAGE
+BSTCONFSTORAGE
           fi
 
           if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
@@ -161,6 +163,9 @@ runs:
 
         build:
           retry-failed: True
+
+        cache:
+          cache-buildtrees: never
 
         artifacts:
           servers:
