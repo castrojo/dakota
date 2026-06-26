@@ -37,9 +37,6 @@ runs:
 
         cachedir: /root/.cache/buildstream
         logdir: /src/logs
-
-        cache:
-          cache-buildtrees: never
         BSTCONF
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
@@ -94,24 +91,7 @@ runs:
 
         BSTCONFCACHE
 
-          # storage-service routes the local casd through the remote server.
-          # Export/publish jobs skip this — the remote server's per-client quota
-          # is too small to materialise large (GNOME 51+) artifacts during export.
-          # Build jobs use it so artifacts are pushed directly to the remote CAS.
-          if [[ "${ENABLE_PUSH:-true}" == "true" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFSTORAGE'
-          storage-service:
-            url: https://cache.projectbluefin.io:11002
-            connection-config:
-              keepalive-time: 180
-              retry-limit: 5
-              retry-delay: 1000
-              request-timeout: 180
-            auth:
-              client-key: /src/client.key
-              client-cert: /src/client.crt
-BSTCONFSTORAGE
-          fi
+          # storage-service is written nested under the main cache block below
 
           if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
             cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
@@ -137,6 +117,30 @@ BSTCONFSTORAGE
               client-key: /src/client.key
               client-cert: /src/client.crt
         BSTCONFREMOTE
+          fi
+        fi
+
+        # Write the unified cache configuration block to avoid duplicate keys.
+        cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
+
+        cache:
+          cache-buildtrees: never
+        BSTCONFCACHEBLOCK
+
+        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
+          if [[ "${ENABLE_PUSH:-true}" == "true" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFSTORAGE'
+          storage-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+        BSTCONFSTORAGE
           fi
         fi
 
