@@ -91,12 +91,33 @@ runs:
 
         BSTCONFCACHE
 
-          # storage-service is written nested under the main cache block below
+          # Top-level storage-service (under cache:) is ONLY for enable-push: true.
+          # Remote execution uses the NESTED storage-service inside remote-execution: block.
+          # NEVER add top-level storage-service when only RE is enabled — it puts casd
+          # in proxy mode and causes gRPC flooding. See docs/skills/ci.md.
 
           if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
+            # IMPORTANT: storage-service is NESTED inside remote-execution, NOT at
+            # the top-level cache: block. This satisfies BST's validation requirement
+            # ("Remote execution requires storage-service") without putting buildbox-casd
+            # into write-through proxy mode (--cas-remote). Top-level cache.storage-service
+            # routes ALL casd operations through the remote and causes gRPC connection drops
+            # after ~3.5 hours. The nested form only affects per-action RE blob transfers
+            # (transient connections), avoiding the sustained stream that killed builds.
+            # See docs/skills/ci.md "Remote Execution with Nested storage-service".
             cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
         remote-execution:
           execution-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+          storage-service:
             url: https://cache.projectbluefin.io:11002
             connection-config:
               keepalive-time: 180

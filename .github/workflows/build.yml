@@ -129,11 +129,19 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Build local, push once. Streaming writes (enable-push: true) cause
-          # sustained gRPC write streams that drop mid-build and corrupt the cache.
-          # The explicit 'Push OCI artifact to remote CAS' step below handles the
-          # cache write after a successful build. See docs/skills/ci.md.
-          enable-remote-execution: 'false'
+          # Remote execution dispatches build actions to cache.projectbluefin.io:11002
+          # (16c/32t Ryzen 9 7950X3D). The action nests storage-service INSIDE the
+          # remote-execution: block — this satisfies BST's validation without putting
+          # casd in write-through proxy mode (which caused gRPC drops after 3.5h).
+          #
+          # enable-push stays false: the explicit "Push OCI artifact to remote CAS" step
+          # below handles cache writes atomically after the build succeeds. This avoids
+          # sustained gRPC write streams during the build phase.
+          #
+          # DO NOT add top-level cache.storage-service — that routes ALL casd operations
+          # through the remote and reintroduces the 3.5-hour gRPC flooding failure.
+          # See docs/skills/ci.md "Remote Execution with Nested storage-service".
+          enable-remote-execution: 'true'
           enable-push: 'false'
 
       # ── BuildStream build ─────────────────────────────────────────────

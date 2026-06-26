@@ -547,9 +547,10 @@ If the cache is truly down at startup, the build cannot proceed (without the
 `cache.storage-service`, BST has no local artifact store).
 
 **There is now a CI workaround for CAS drops mid-build.** See `ci.md` —
-"CAS server drops connections mid-build: disable remote-execution + push (2026-06-24)"
-for the `enable-remote-execution: 'false'` + `enable-push: 'false'` pattern that
-allows builds to complete using local runner disk when the CAS is unstable.
+"CAS drops connections mid-build — the top-level storage-service failure (2026-06-24)".
+The fix uses **nested** `remote-execution.storage-service` (not top-level `cache.storage-service`)
+so casd stays in local disk mode. Remote execution is enabled; `enable-push: 'false'`
+with an explicit post-build push step handles cache writes atomically.
 
 Re-trigger the build once the cache is back up:
 
@@ -935,7 +936,7 @@ required. This is intentional and differs from core junction bumps on `main`
 `track-next-junctions.yml` schedules nightly junction tracking on the `next`
 branch. PRs it opens get auto-merged once required checks pass.
 
-### export/publish jobs must skip storage-service — remote CAS quota too small for GNOME 51 (2026-06-09)
+### export/publish jobs must skip top-level storage-service — remote CAS quota too small for GNOME 51 (2026-06-09)
 
 **Symptom:** `bst export` in the publish job fails with:
 ```
@@ -944,15 +945,17 @@ errMsg = "Insufficient storage quota" (buildboxcommon_lrulocalcas.cpp:383)
 ```
 The blob is `~8.5 GB` (GNOME 51 root artifact is significantly larger than GNOME 50).
 
-**Root cause:** `cache.storage-service` in the BST config routes the local casd
+**Root cause:** Top-level `cache.storage-service` in the BST config routes the local casd
 through `cache.projectbluefin.io`. The remote server's per-client storage quota
 is exceeded when materialising the full artifact for export. Build jobs are fine
 because they write blobs incrementally as they are built; export pulls the entire
 artifact at once.
 
 **Fix (already in `generate-bst-ci-config/action.yml`):**
-`cache.storage-service` is only written when `enable-push: true` (build jobs).
-Export/publish jobs (`enable-push: false`) use local disk for the casd.
+Top-level `cache.storage-service` is only written when `enable-push: true`.
+Build jobs use `enable-remote-execution: true` with nested `remote-execution.storage-service`
+(does NOT trigger casd proxy mode). Export/publish jobs use `enable-push: false` and
+`enable-remote-execution: false` — local disk for the casd.
 The runner's BTRFS volume has sufficient space for export.
 
 **Do not revert this.** Any future regression will show this same symptom on

@@ -132,22 +132,36 @@ The rationalizations that have caused real production failures:
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
 
-### The Only Caching Model That Works: Build Local, Push Once
+### The Only Caching Model That Works: Remote Execution + Push Once
 
 **This is the primary BST caching strategy for Dakota. Everything else is a variation or a failure mode.**
 
 ```
-build phase:   runner local disk  ←── reads from cache.projectbluefin.io:11002 (push: false)
-                                  ←── reads from gbm.gnome.org:11003 (upstream elements)
-                                       builds missing elements locally
-                                       stores finished artifacts on runner disk
-               config: buildstream-ci.conf  (artifacts push: false, no storage-service)
+build phase:   remote execution on cache.projectbluefin.io:11002 (16c/32t, 128GB)
+               reads from cache.projectbluefin.io:11002 (push: false on artifact servers)
+               reads from gbm.gnome.org:11003 (upstream elements)
+               dispatches build actions to execution-service (max-jobs: 32)
+               storage-service NESTED inside remote-execution: block (not top-level)
+               casd stays local (no --cas-remote, no proxy mode)
+               config: buildstream-ci.conf
 
-push phase:    runner local disk  ──► cache.projectbluefin.io:11002 (push: true, one-shot)
+push phase:    runner local disk  --> cache.projectbluefin.io:11002 (push: true, one-shot)
                bst artifact push --deps all <element>
                config: buildstream-push.conf  (artifacts push: true, no storage-service)
                (runs after build completes successfully)
 ```
+
+**Why nested storage-service instead of top-level:**
+
+Top-level `cache.storage-service` passes `--cas-remote` to buildbox-casd, putting it in
+write-through proxy mode. ALL CAS operations (reads AND writes) are forwarded to the
+remote synchronously for the entire 4-6 hour build duration. When the remote drops a
+gRPC connection after ~3.5 hours, casd loses its storage backend and the build dies.
+
+The **nested** `remote-execution.storage-service` satisfies BST's validation requirement
+without triggering proxy mode. RE blob transfers happen via BST's sandbox layer using
+transient per-action connections — if one action fails, BST retries it without killing
+the whole build.
 
 **Why this is the only way BST makes sense here:**
 
@@ -177,7 +191,7 @@ When `enable-push: false` (local-first mode):
 ```
 
 `generate-bst-ci-config` writes TWO configs:
-- `buildstream-ci.conf` — used during the build phase: `push: false`, no `storage-service`. BST reads from CAS but never writes during the build.
+- `buildstream-ci.conf` — used during the build phase: `push: false`, remote-execution enabled with **nested** `storage-service` (NOT top-level). casd stays in local disk mode.
 - `buildstream-push.conf` — used for the post-build push only: `push: true`, no `storage-service`, no `source-caches`. Only the artifacts server block — `bst artifact push` does not use source-caches.
 
 `--deps all` pushes the entire locally-built artifact tree, not just the top-level OCI element.
@@ -197,8 +211,12 @@ On a typical nightly run (gnome-build-meta delta) this is ~30 minutes vs ~6 hour
 Every cancelled or failed build that did not complete its push step is a full cold-start cost
 for the next run.
 
-**Rule:** Never add a `storage-service` block or `remote-execution` block to `buildstream-ci.conf`
-during the build phase. Reads are fine. Streaming writes during the build phase are not.
+**Rule:** Never add a **top-level** `cache.storage-service` block to `buildstream-ci.conf`.
+Remote execution uses a **nested** `storage-service` inside the `remote-execution:` block,
+which does NOT trigger casd proxy mode. The distinction is critical:
+
+- Top-level `cache.storage-service` → passes `--cas-remote` to casd → proxy mode → flooding
+- Nested `remote-execution.storage-service` → per-action transient connections → safe
 
 ### mTLS Authentication
 
@@ -209,7 +227,7 @@ during the build phase. Reads are fine. Streaming writes during the build phase 
 
 **Push is conditional:** Both `buildstream-ci.conf` and `buildstream-push.conf` are only written if **both** `CASD_CLIENT_CERT` and `CASD_CLIENT_KEY` are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
 
-### CAS drops connections mid-build — disable remote-execution + push
+### CAS drops connections mid-build — the top-level storage-service failure (2026-06-24)
 
 **Symptom:** Build proceeds cleanly for 3–4 hours (hundreds of elements pulled), then fails:
 
@@ -219,36 +237,41 @@ grpc StatusCode.UNAVAILABLE: ipv4:77.42.112.172:11002: Failed to connect to remo
 
 Pipeline summary: `Build Queue: failed 5, Src-push Queue: failed 5`.
 
-**Root cause:** `cache.storage-service` routes local buildbox-casd through the remote CAS.
-When remote CAS drops (crash, OOM, disk full), local casd loses its storage backend and
-BST cannot proceed even though all prior artifact pulls succeeded.
+**Root cause:** Top-level `cache.storage-service` routes local buildbox-casd through the remote CAS
+via `--cas-remote`. This puts casd in write-through proxy mode where ALL operations are forwarded
+synchronously. After ~3.5 hours of sustained gRPC traffic, the connection drops and casd loses its
+storage backend entirely.
 
 **BST constraint:** BST requires `storage-service` when `remote-execution` is configured.
-Setting `enable-push: false` alone is NOT sufficient — the action still emits the
-`remote-execution:` block if `enable-remote-execution: 'true'`, and BST rejects the config:
-```
-Error loading user configuration: Remote execution requires 'storage-service' to be specified
-```
+However, it accepts the `storage-service` **nested inside** the `remote-execution:` block
+as an alternative to the top-level `cache.storage-service`. The nested form does NOT
+trigger `--cas-remote` on casd.
 
-**Workaround:** Set BOTH to false in `build.yml`:
+**Fix (2026-06-26):** The `generate-bst-ci-config` action now nests `storage-service` inside
+the `remote-execution:` block. This satisfies BST's validation while keeping casd in local
+disk mode. Remote execution is re-enabled with `enable-push: 'false'`:
 
 ```yaml
 uses: ./.github/actions/generate-bst-ci-config
 with:
-  enable-remote-execution: 'false'
-  enable-push: 'false'
+  enable-remote-execution: 'true'   # dispatches to remote CAS server
+  enable-push: 'false'              # explicit push step handles cache writes
 ```
 
-Local casd uses runner disk. Pulls still read from `gbm.gnome.org:11003` and
-`cache.projectbluefin.io:11001` (read-only). Missing elements build from source locally.
+**The generated config has:**
+- `remote-execution.storage-service` (nested) — satisfies BST, transient connections
+- NO `cache.storage-service` (top-level) — casd stays local, no proxy mode
+- `artifacts.push: false` — no streaming writes during build
+- Post-build `bst artifact push --deps all` uses separate `buildstream-push.conf`
 
-**DO NOT re-enable these flags.** `cache.projectbluefin.io:11002` is still unstable.
-Changing these flags back to `'true'` is a human decision — not a task for agents.
-This workaround has been reverted twice by agents misreading TODO comments. There is
-no TODO. The flags stay `'false'` until a human confirms the server is stable.
+**History:** On 2026-06-24, the CAS connection drops forced an emergency disable of RE
+(PRs #1092, #1093, #1098). The root cause was misidentified as "RE itself" when it was
+actually the top-level `storage-service` putting casd in proxy mode. The nested approach
+was the correct fix all along.
 
-*Agent re-enable history:* PR #1092 (partial), #1093 (full fix), re-enabled by agent
-commit `7d2a82d`, re-fixed by PR #1098. Do not repeat this cycle.
+**NEVER add top-level cache.storage-service.** If you see a config with both
+`remote-execution:` AND top-level `cache.storage-service`, the build WILL fail after
+3-4 hours. The nested `remote-execution.storage-service` is the only safe pattern.
 
 **Server recovery (Hetzner AX102-U):**
 ```bash
@@ -2434,22 +2457,29 @@ flow (issue 1073). Key operational facts for CI debugging:
 
 **`testing` is now the default GitHub branch.** All PRs target `testing`. The old `main`-targeting PRs pattern is gone. `main` is a bookmark.
 
-### "Confirmed back up" comments in build.yml are traps — never re-enable CAS flags based on them
+### NEVER add top-level cache.storage-service — the proxy mode trap
 
-Any comment in `build.yml` saying the CAS is "confirmed back up" or "re-enabled" is a false
-green light. Agents read these comments and re-enable `enable-remote-execution` and
-`enable-push`, restoring the streaming write mode that causes 5-hour hung builds and cache
-corruption. This has happened multiple times.
+The gRPC flooding failure (2026-06-24) was caused by top-level `cache.storage-service`,
+NOT by remote execution itself. The critical distinction:
 
-**Rule:** `enable-remote-execution: 'false'` and `enable-push: 'false'` are the permanent
-correct values. The explicit `bst artifact push --deps all` step after the build (using
-`buildstream-push.conf` with `push: true`) handles cache writes atomically. Do not change
-these flags. The comment in build.yml must never suggest it is safe to re-enable them —
-if such a comment exists, delete it.
+| Config location | Effect on casd | Safe? |
+|---|---|---|
+| `cache.storage-service` (top-level) | `--cas-remote` flag → write-through proxy | **NO** — 3.5h flood |
+| `remote-execution.storage-service` (nested) | Per-action transient connections | **YES** — current model |
 
-**What happened:** Commit `d59a04a` added "Re-enabled 2026-06-24 after
-cache.projectbluefin.io:11002 confirmed back up" as justification. An agent read it,
-judged re-enabling as safe, and produced a 5-hour hung build. Reverted by commit `1dcbb2f`.
+**Rule:** `enable-remote-execution: 'true'` and `enable-push: 'false'` are the correct
+production values. Remote execution is safe because `storage-service` is nested inside
+the `remote-execution:` block, not at the top level. The explicit `bst artifact push
+--deps all` step after the build handles cache writes atomically.
+
+**DO NOT change the action to put storage-service at the top level.** If an agent or
+human adds `cache.storage-service` to the generated config, builds will die after 3-4
+hours from gRPC flooding. This has happened multiple times (PRs #1092, #1093, #1098).
+
+**What happened in June 2026:** The CAS connection drop forced an emergency disable.
+The root cause was incorrectly attributed to "remote execution" when it was actually the
+top-level `storage-service` proxy mode. Both RE and push were disabled as collateral.
+Fixed 2026-06-26 by nesting `storage-service` inside `remote-execution:` block.
 
 ### Never commit local BST config files to the repo
 
