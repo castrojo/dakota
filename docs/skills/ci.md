@@ -146,7 +146,7 @@ build phase:   remote execution on cache.projectbluefin.io:11002 (16c/32t, 128GB
                config: buildstream-ci.conf
 
 push phase:    runner local disk  --> cache.projectbluefin.io:11002 (push: true, one-shot)
-               bst artifact push --deps all <element>
+               bst artifact push --deps run <element>
                config: buildstream-push.conf  (artifacts push: true, no storage-service)
                (runs after build completes successfully)
 ```
@@ -187,18 +187,15 @@ When `enable-push: false` (local-first mode):
   env:
     BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
   run: |
-    just bst artifact push --deps all ${{ matrix.element }}
+    just bst artifact push --deps run ${{ matrix.element }}
 ```
 
 `generate-bst-ci-config` writes TWO configs:
 - `buildstream-ci.conf` — used during the build phase: `push: false`, remote-execution enabled with **nested** `storage-service` (NOT top-level). casd stays in local disk mode.
 - `buildstream-push.conf` — used for the post-build push only: `push: true`, no `storage-service`, no `source-caches`. Only the artifacts server block — `bst artifact push` does not use source-caches.
 
-`--deps all` pushes the entire locally-built artifact tree, not just the top-level OCI element.
-This is critical for cold starts: after a build that rebuilt many elements (e.g. after the cache
-went cold), `--deps none` would leave all intermediate artifacts un-pushed and the next build
-would be cold again. BST artifact push is idempotent — elements already in the remote CAS are
-skipped, so `--deps all` is safe and fast on a warm cache.
+`--deps run` pushes the entire locally-built and pulled runtime artifact tree, not just the top-level OCI element itself.
+This is critical for warm builds and cold starts alike: after a build, `--deps none` would leave all intermediate runtime artifacts un-pushed. We use `run` instead of `all` because `all` tries to push build-time-only dependencies (like bootstrap seeds) which are skipped on warm builds and not cached locally, causing the push step to fail with a "not cached" error.
 
 **Why `push: false` in buildstream-ci.conf does NOT mean the push step is a noop:**
 They use different config files. The build phase uses `buildstream-ci.conf` (`push: false`) so
