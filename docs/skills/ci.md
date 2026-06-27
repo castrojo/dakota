@@ -417,6 +417,10 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 ## Lessons Learned
 
+### Push --deps all fails on local runner under remote execution mode (2026-06-26)
+
+When `enable-remote-execution: 'true'` is used, the build is executed on the remote executor, leaving the local runner's cache empty of intermediate and bootstrap artifacts. Subsequent local post-build steps running `just bst artifact push --deps all` will fail because they cannot find dependencies (like `bootstrap/base-sdk/binary-seed-x86_64.bst`) in the local cache. If remote execution is enabled, the artifacts are already written to the remote CAS by the worker, making local pushes both redundant and impossible. If remote execution must be bypassed or local artifacts are compiled, disable remote execution (`enable-remote-execution: 'false'`) to populate the local cache first.
+
 ### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
 
 The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second
