@@ -148,3 +148,19 @@ Do not cancel a build under 120 min just because it "seems slow." Historical ran
 ### 32 fetchers is the right setting for cache.projectbluefin.io (2026-06-23)
 
 `buildstream-ci.conf` uses `fetchers: 32` (BST default is 10). With default + nvidia running simultaneously = 64 concurrent gRPC streams. The CAS server is a Hetzner AX102-U (1 Gbit/s uplink, NVMe Gen4) and can serve 64 streams comfortably. The bottleneck is network bandwidth (~125 MB/s total), not server capacity. Do not reduce fetchers without evidence of server-side saturation.
+
+### overlap-whitelist required for base system file replacement
+
+When an element provides files that are also provided by an upstream junction component (for example, `/etc/subuid` and `/etc/subgid` provided by `freedesktop-sdk.bst:components/shadow.bst`), BuildStream will throw an overlap error during composition (e.g. in `bluefin-runtime.bst`).
+
+To explicitly overwrite these files, you must declare an overlap whitelist in the `public` block of the authoring element:
+
+```yaml
+public:
+  bst:
+    overlap-whitelist:
+    - '%{sysconfdir}/subuid'
+    - '%{sysconfdir}/subgid'
+```
+
+*Note: Replacing base system files destroys the base mappings. Whenever possible, prefer injecting changes dynamically via a hook (e.g., in `common.bst`) rather than completely replacing junction files.*
