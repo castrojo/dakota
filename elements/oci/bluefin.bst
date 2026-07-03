@@ -47,6 +47,10 @@ config:
     - |
       dconf update /layer/etc/dconf/db
 
+    # No-op cache-bust to invalidate a stale/corrupt remote artifact key
+    # (CAS blob download failures on oci/bluefin.bst).
+    - true
+
     - |
       # Rebuild the shared library linker cache for the sysroot.
       # Without this, any SO version bump (e.g. Mesa libgallium, Pipewire)
