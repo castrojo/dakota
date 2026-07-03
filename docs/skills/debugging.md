@@ -145,3 +145,7 @@ Do not open the sandbox before you even know whether the graph parses.
 ### `Error loading project` before any build step = YAML error, not a build failure (2026-06-07)
 
 When BST exits with `Error loading project` before any `[build]` output appears, the element has a YAML/option error — it never even started building. Run `just bst show bluefin/<name>.bst` (no build) to pinpoint the exact line. Common causes: hyphenated option names, wrong option type, missing alias, bad indentation. Do not reach for `just bst shell` until `bst show` exits cleanly.
+
+### Invalidate stale/corrupt remote CAS cache keys with a no-op command (2026-07-03)
+
+If a remote artifact on `cache.projectbluefin.io` is corrupted (e.g., due to partial writes or aborted builds), BuildStream may attempt to pull it and fail with a transport error or gRPC `INTERNAL` (blob download code 13). Because BuildStream does not automatically fall back to rebuilding if a pull fails midway, the build remains broken. The fix is to modify the element (e.g., adding a no-op command like `- true` in `elements/oci/bluefin.bst`) to bust the cache key, forcing a clean rebuild from dependencies.
