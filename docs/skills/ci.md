@@ -633,6 +633,20 @@ find /tmp/bst-logs -name "*.log" | grep -oP '\d{8}-\d{6}' | sort | tail -10
 artifacts for all elements whose cache keys are unchanged — typically a warm build
 completes in under 90 minutes.
 
+### testing build timeout ceiling must absorb cold GNOME deltas (2026-07-04)
+
+If `Build OCI image with BuildStream` dies exactly at the step timeout while still
+advancing the element graph, the failure is a CI time budget issue, not an element
+compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 330
+minutes.
+
+**Current guardrail in `build.yml`:**
+- Build job timeout: `360` minutes
+- Build step timeout: `330` minutes
+
+Keep the job timeout higher than the build step timeout so artifact upload and final
+diagnostics still run after a build-step timeout.
+
 ### `oci/bluefin.bst` CAS digest mismatch workaround must change layer bytes (2026-07-04)
 
 When a build fails during pull with:
@@ -659,6 +673,15 @@ This writes deterministic content that changes layer output bytes. BuildStream h
 the layer artifact, produces a new blob digest, and avoids the poisoned remote blob
 at the old digest/size tuple. The `cas-epoch-YYYY-MM-DD-N` naming lets future fixes
 be identifiable by timestamp and attempt number.
+
+### `oci/bluefin.bst` CAS digest mismatch requires changing layer bytes (2026-07-04)
+
+A no-op cache-bust such as `- true` is not sufficient for this element. BuildStream
+can still reuse the same CAS layer blob if the produced layer bytes are unchanged,
+so the poisoned remote object is hit again. The verified fix is to write a small,
+deterministic marker file into the layer, e.g. `/usr/lib/projectbluefin/cas-epoch`.
+That changes the layer bytes, forces a new blob digest, and avoids the bad remote
+blob object. This was verified locally with `just bst build --deps none oci/bluefin.bst`.
 
 ### Promotion pipeline hardening — bonedigger and release race (2026-06-07)
 
