@@ -633,6 +633,20 @@ find /tmp/bst-logs -name "*.log" | grep -oP '\d{8}-\d{6}' | sort | tail -10
 artifacts for all elements whose cache keys are unchanged — typically a warm build
 completes in under 90 minutes.
 
+### testing build timeout ceiling must absorb cold GNOME deltas (2026-07-04)
+
+If `Build OCI image with BuildStream` dies exactly at the step timeout while still
+advancing the element graph, the failure is a CI time budget issue, not an element
+compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 330
+minutes.
+
+**Current guardrail in `build.yml`:**
+- Build job timeout: `420` minutes
+- Build step timeout: `390` minutes
+
+Keep the job timeout higher than the build step timeout so artifact upload and final
+diagnostics still run after a build-step timeout.
+
 ### Promotion pipeline hardening — bonedigger and release race (2026-06-07)
 
 **bonedigger "workflow file issue":** The lifecycle caller (`bonedigger.yml`) was
@@ -2263,4 +2277,3 @@ flow (issue 1073). Key operational facts for CI debugging:
 **SHA-based freshness check.** `execute-release.yml` compares the `:testing` image digest to the current `:stable` digest. If they are equal, promotion is skipped (nothing new to ship). If different, the promote path runs: cosign verify → boot-check → skopeo copy → fast-forward main. The SHA used for cosign verify comes from `github.event.workflow_run.head_sha`, not a live `:testing` tag lookup.
 
 **`testing` is now the default GitHub branch.** All PRs target `testing`. The old `main`-targeting PRs pattern is gone. `main` is a bookmark.
-
