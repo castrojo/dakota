@@ -633,19 +633,20 @@ find /tmp/bst-logs -name "*.log" | grep -oP '\d{8}-\d{6}' | sort | tail -10
 artifacts for all elements whose cache keys are unchanged — typically a warm build
 completes in under 90 minutes.
 
-### testing build timeout ceiling must absorb cold GNOME deltas (2026-07-04)
+### `oci/bluefin.bst` CAS digest mismatch workaround must change layer bytes (2026-07-04)
 
-If `Build OCI image with BuildStream` dies exactly at the step timeout while still
-advancing the element graph, the failure is a CI time budget issue, not an element
-compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 330
-minutes.
+When a build fails during pull with:
+`Failed to download blob <digest>: 13` and CASD reports:
 
-**Current guardrail in `build.yml`:**
-- Build job timeout: `420` minutes
-- Build step timeout: `390` minutes
+`Expected blob with digest <A>/<size>, but downloaded blob has digest <B>/<size>`
 
-Keep the job timeout higher than the build step timeout so artifact upload and final
-diagnostics still run after a build-step timeout.
+the issue is a poisoned remote blob object, not a build timeout. A no-op command
+(`true`) only changes the element key and can still resolve to the same poisoned
+layer blob digest if output bytes are unchanged.
+
+**Required workaround:** change deterministic layer content in `oci/bluefin.bst`
+(for example a stable `cas-epoch` marker file under `/usr/lib/projectbluefin`) so
+the produced layer blob digest changes and bypasses the bad remote object.
 
 ### Promotion pipeline hardening — bonedigger and release race (2026-06-07)
 
