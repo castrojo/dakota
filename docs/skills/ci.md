@@ -648,6 +648,18 @@ layer blob digest if output bytes are unchanged.
 (for example a stable `cas-epoch` marker file under `/usr/lib/projectbluefin`) so
 the produced layer blob digest changes and bypasses the bad remote object.
 
+**Concrete fix (commit 9001b98b):** Replace no-op `- true` with:
+```yaml
+- |
+  install -d /layer/usr/lib/projectbluefin
+  printf '%s\n' 'cas-epoch-2026-07-04-1' > /layer/usr/lib/projectbluefin/cas-epoch
+```
+
+This writes deterministic content that changes layer output bytes. BuildStream hashes
+the layer artifact, produces a new blob digest, and avoids the poisoned remote blob
+at the old digest/size tuple. The `cas-epoch-YYYY-MM-DD-N` naming lets future fixes
+be identifiable by timestamp and attempt number.
+
 ### Promotion pipeline hardening — bonedigger and release race (2026-06-07)
 
 **bonedigger "workflow file issue":** The lifecycle caller (`bonedigger.yml`) was
