@@ -633,19 +633,16 @@ find /tmp/bst-logs -name "*.log" | grep -oP '\d{8}-\d{6}' | sort | tail -10
 artifacts for all elements whose cache keys are unchanged — typically a warm build
 completes in under 90 minutes.
 
-### testing build timeout ceiling must absorb cold GNOME deltas (2026-07-04)
+### Do not paper over real build failures with workflow timeout changes (2026-07-05)
 
 If `Build OCI image with BuildStream` dies exactly at the step timeout while still
-advancing the element graph, the failure is a CI time budget issue, not an element
-compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 390
-minutes.
+advancing the element graph, do not assume the timeout is the root cause. Check the
+build logs first: a CAS blob mismatch or other real build failure can look like a
+slow run until the step hits its limit.
 
-**Current guardrail in `build.yml`:**
-- Build job timeout: `420` minutes
-- Build step timeout: `390` minutes
-
-Keep the job timeout higher than the build step timeout so artifact upload and final
-diagnostics still run after a build-step timeout.
+For this failure path, the correct fix is in the OCI layer bytes (for example
+`elements/oci/bluefin.bst`), not in the workflow timeout budget. Changing the
+workflow only hides the symptom and leaves the underlying artifact issue in place.
 
 ### `oci/bluefin.bst` CAS digest mismatch workaround must change layer bytes (2026-07-04)
 
