@@ -50,7 +50,7 @@ jobs:
     needs: [verify-default-branch]
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 420
     # Global BST concurrency: only one BuildStream build may run across
     # ALL branches and workflows. The remote CAS at cache.projectbluefin.io
     # is rate-limited and supports a single build at a time — concurrent
@@ -182,7 +182,7 @@ jobs:
           set -o pipefail
           just bst build ${{ matrix.element }} 2>&1 \
             | python3 files/scripts/bst-progress.py
-        timeout-minutes: 330
+        timeout-minutes: 390
 
       # Push all locally-built artifacts to remote CAS so publish.yml can export
       # and the next scheduled build starts warm. Uses buildstream-push.conf

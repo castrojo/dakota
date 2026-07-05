@@ -637,12 +637,12 @@ completes in under 90 minutes.
 
 If `Build OCI image with BuildStream` dies exactly at the step timeout while still
 advancing the element graph, the failure is a CI time budget issue, not an element
-compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 330
+compile failure. On `testing`, cold-ish rebuilds after ref churn can exceed 390
 minutes.
 
 **Current guardrail in `build.yml`:**
-- Build job timeout: `360` minutes
-- Build step timeout: `330` minutes
+- Build job timeout: `420` minutes
+- Build step timeout: `390` minutes
 
 Keep the job timeout higher than the build step timeout so artifact upload and final
 diagnostics still run after a build-step timeout.
