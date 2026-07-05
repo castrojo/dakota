@@ -182,7 +182,7 @@ jobs:
           set -o pipefail
           just bst build ${{ matrix.element }} 2>&1 \
             | python3 files/scripts/bst-progress.py
-        timeout-minutes: 330
+        timeout-minutes: 360
 
       # Push all locally-built artifacts to remote CAS so publish.yml can export
       # and the next scheduled build starts warm. Uses buildstream-push.conf
