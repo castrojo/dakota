@@ -47,14 +47,6 @@ config:
     - |
       dconf update /layer/etc/dconf/db
 
-    # Deterministic layer-content bump to avoid reusing a known-bad remote
-    # blob digest for oci/bluefin.bst (CAS served mismatched content for the
-    # same digest/size tuple). This changes layer bytes, not just the element
-    # key, forcing a new layer blob digest.
-    - |
-      install -d /layer/usr/lib/projectbluefin
-      printf '%s\n' 'cas-epoch-2026-07-04-1' > /layer/usr/lib/projectbluefin/cas-epoch
-
     - |
       # Rebuild the shared library linker cache for the sysroot.
       # Without this, any SO version bump (e.g. Mesa libgallium, Pipewire)

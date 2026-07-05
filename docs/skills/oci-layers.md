@@ -181,3 +181,7 @@ The OCI assembly script in `elements/oci/bluefin.bst` must run steps in this exa
 4. `build-oci` (assemble image)
 
 Running `ldconfig` after `build-oci` has no effect. Running `build-oci` before `dconf update` produces an image with stale/missing dconf databases.
+
+### Force a new OCI layer digest via a tiny layer marker element (2026-07-05)
+
+When a remote CAS/object cache reuses the wrong content for a layer digest/size tuple, the safest fix is to change the layer contents in a targeted way instead of only changing workflow timeouts or element keys. A small manual element that installs a versioned marker file into the compose layer keeps the fix in the layer boundary and avoids turning the final OCI script into a broad rebuild path.
