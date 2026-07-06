@@ -147,3 +147,16 @@ factory restart sequence is:
 5. Once `:testing` lands, `execute-release.yml` auto-triggers to promote `:testing` → `:stable` (no human approval needed).
 
 Full details: `release-promotion.md` and `ci-tooling.md`.
+
+### When a remote build is slow, verify the generated config before changing workflows again (2026-07-06)
+
+If a Dakota remote build is slow or times out, do not start by toggling the same workflow flag again. First verify that the workflow still passes the correct inputs to the config generator and that the generated BuildStream config actually contains a `remote-execution:` block. The 2026-07-06 investigation showed that cache access alone can be present while expensive build actions are still happening locally on the runner.
+
+The lightweight checklist for the next run is:
+
+1. Confirm `build.yml` still sets `enable-remote-execution: 'true'`.
+2. Confirm the generated `buildstream-ci.conf` includes a `remote-execution:` section with the remote CAS endpoint.
+3. Inspect the uploaded BuildStream logs for `Pulled artifact`, `Pulled source`, and `does not have artifact/source cached` lines.
+4. If those are present and the build still runs long, treat the next bottleneck as an actual build / upstream-cache issue and inspect the active element graph rather than another workflow-only change.
+
+This keeps the work evidence-first and leaves the next run with a concrete verification path instead of another round of blind churn.

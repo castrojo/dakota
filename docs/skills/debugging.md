@@ -155,3 +155,16 @@ Dakota's verified mitigation for a stale remote blob is a small, versioned marke
 ### Plain-text marker files need `strip-binaries: ""` (2026-07-05)
 
 Elements that install non-ELF payloads (plain text files, shell scripts, fonts, JSON, prebuilt archives) can fail during the stripping phase even when the install command itself is correct. The symptom is a BuildStream failure with `freedesktop-sdk-stripper` exiting `127` while the element's `install-commands` are otherwise simple. The root cause is that BuildStream's default strip step is trying to process a file that is not an ELF binary. Add `variables: { strip-binaries: "" }` to the element to disable the strip step for that payload.
+
+### Remote-build slowness is diagnosed from logs and generated config, not from workflow churn (2026-07-06)
+
+When a remote BST build is slow or hits the workflow timeout, the first question is not "should we change the timeout again?" The first question is whether the generated BuildStream config is actually enabling remote execution and whether the run is progressing with remote cache activity. The 2026-07-06 investigation showed that a workflow can appear to be using the remote cache while still not dispatching expensive build actions to the remote execution service.
+
+Good evidence to gather before changing anything else:
+
+1. Confirm the workflow passes `enable-remote-execution: 'true'` to the generator.
+2. Confirm the generated `buildstream-ci.conf` contains a `remote-execution:` block.
+3. Inspect the build logs for remote cache activity (`Pulled artifact`, `Pulled source`, `does not have artifact/source cached`) and for evidence that the build is continuing past the initial fetch phase.
+4. If the build still stalls, inspect the active element graph and the latest upstream nightly delta rather than making another workflow-only change.
+
+This matters because repeat toggles of the same flag can create the false impression that the problem is solved while the build stays in the same state. A real fix must show up in the generated config and in the BuildStream logs. If the config is correct and the logs show remote action cache activity, the next bottleneck is likely an actual element / upstream-cache issue rather than a workflow bug.
