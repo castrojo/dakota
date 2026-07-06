@@ -117,6 +117,22 @@ git push upstream fix/short-description
 
 ## Lessons Learned
 
+### Rootless podman export/lint on local shells (2026-07-05)
+
+If `just export` or `just lint` fail with `sudo: a terminal is required to read the password`,
+the repo recipes are invoking `sudo podman` even though the current user already
+has a working rootless podman setup. In that case, run the equivalent podman
+commands directly with the same flags as the recipe instead of forcing sudo.
+A successful local validation path is:
+
+1. `just validate`
+2. `just bst artifact checkout oci/bluefin.bst --directory /src/.build-out`
+3. `podman pull -q oci:.build-out`
+4. `podman build ... -t dakota:latest`
+5. `podman run ... dakota:latest bootc container lint`
+
+This is a local-environment workaround, not a repo change.
+
 ### Restarting the publish factory after a pause (2026-06-05)
 
 When publishing has been intentionally paused (e.g., post-repo-refactor), the

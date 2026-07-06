@@ -4,6 +4,9 @@ sources:
   - kind: local
     path: files/oci/bluefin-layer-marker
 
+variables:
+  strip-binaries: ""
+
 build-depends:
   - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst
 

@@ -141,7 +141,9 @@ jobs:
           # DO NOT add top-level cache.storage-service — that routes ALL casd operations
           # through the remote and reintroduces the 3.5-hour gRPC flooding failure.
           # See docs/skills/ci.md "Remote Execution with Nested storage-service".
-          enable-remote-execution: 'false'
+          # Remote execution is enabled here so expensive BST builds are dispatched
+          # to the remote cache server instead of being compiled entirely on the runner.
+          enable-remote-execution: 'true'
           enable-push: 'false'
 
       # ── BuildStream build ─────────────────────────────────────────────

@@ -280,6 +280,8 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 A cold `build.yml` run can keep `Build OCI image with BuildStream` alive past the old 360-minute budget without surfacing a build-element failure. In that case the workflow timeout budget itself is the constraint, not a poisoned CAS blob or an element syntax error. For remote BST builds, give the job and the build step 480 minutes of headroom and inspect the uploaded logs if the run still stalls after that. This was confirmed by the 2026-07-06 run that reached roughly 6 hours while the element graph was still advancing.
 
+A second lesson from the 2026-07-06 investigation: read-only artifact/source-cache pulls alone are not enough to keep GHA builds fast. The workflow must also enable remote execution in the generated BuildStream config so expensive elements are dispatched to the remote CAS server instead of being compiled locally on the runner. The current workflow uses the nested `remote-execution.storage-service` form the action already documents, which avoids the earlier gRPC proxy-mode failure.
+
 ### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
 
 The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second

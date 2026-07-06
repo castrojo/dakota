@@ -149,3 +149,9 @@ When BST exits with `Error loading project` before any `[build]` output appears,
 ### Invalidate stale/corrupt remote CAS cache keys with a no-op command (2026-07-03)
 
 If a remote artifact on `cache.projectbluefin.io` is corrupted (e.g., due to partial writes or aborted builds), BuildStream may attempt to pull it and fail with a transport error or gRPC `INTERNAL` (blob download code 13). Because BuildStream does not automatically fall back to rebuilding if a pull fails midway, the build remains broken. The fix is to modify the element (e.g., adding a no-op command like `- true` in `elements/oci/bluefin.bst`) to bust the cache key, forcing a clean rebuild from dependencies.
+
+Dakota's verified mitigation for a stale remote blob is a small, versioned marker file installed into the OCI layer: `elements/oci/layers/bluefin-layer-marker.bst` installs `files/oci/bluefin-layer-marker` at `/usr/lib/projectbluefin/cas-epoch`. Bump the marker contents when the remote cache needs a fresh layer digest so BuildStream cannot reuse the poisoned blob under the old digest/size tuple.
+
+### Plain-text marker files need `strip-binaries: ""` (2026-07-05)
+
+Elements that install non-ELF payloads (plain text files, shell scripts, fonts, JSON, prebuilt archives) can fail during the stripping phase even when the install command itself is correct. The symptom is a BuildStream failure with `freedesktop-sdk-stripper` exiting `127` while the element's `install-commands` are otherwise simple. The root cause is that BuildStream's default strip step is trying to process a file that is not an ELF binary. Add `variables: { strip-binaries: "" }` to the element to disable the strip step for that payload.
