@@ -276,6 +276,10 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Entries before 2026-06-23 may reference workflows that have since been deleted (`promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`). Those workflows were deleted in the OCI-native redesign (issue 1073). Do not recreate them.
 
+### Remote BST builds can exceed the 6-hour GHA budget on cold schedules (2026-07-06)
+
+A cold `build.yml` run can keep `Build OCI image with BuildStream` alive past the old 360-minute budget without surfacing a build-element failure. In that case the workflow timeout budget itself is the constraint, not a poisoned CAS blob or an element syntax error. For remote BST builds, give the job and the build step 480 minutes of headroom and inspect the uploaded logs if the run still stalls after that. This was confirmed by the 2026-07-06 run that reached roughly 6 hours while the element graph was still advancing.
+
 ### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
 
 The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second
