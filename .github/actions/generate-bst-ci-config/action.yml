@@ -27,8 +27,8 @@ runs:
         cat > buildstream-ci.conf <<'BSTCONF'
         scheduler:
           on-error: continue
-          fetchers: 32
-          builders: 4
+          fetchers: 16
+          builders: 2
           network-retries: 3
 
         logging:
@@ -44,7 +44,7 @@ runs:
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
-          max-jobs: 32
+          max-jobs: 16
         BSTCONFBUILD
           else
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
@@ -193,8 +193,8 @@ runs:
           cat > buildstream-push.conf <<'BSTCONFPUSH'
         scheduler:
           on-error: continue
-          fetchers: 32
-          builders: 4
+          fetchers: 16
+          builders: 2
           network-retries: 3
 
         logging:
