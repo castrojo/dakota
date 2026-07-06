@@ -165,6 +165,24 @@ runs:
           fi
         fi
 
+        # Preserve the generated config in the uploaded logs artifact so the next run
+        # can confirm the remote-execution block was emitted and not silently skipped.
+        cp buildstream-ci.conf logs/buildstream-ci.conf
+
+        if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
+          if [[ -z "${CASD_CLIENT_CERT:-}" ]] || [[ -z "${CASD_CLIENT_KEY:-}" ]]; then
+            echo "::error::remote execution was requested but CASD client credentials are missing"
+            exit 1
+          fi
+          if ! grep -Fq 'remote-execution:' buildstream-ci.conf; then
+            echo "::error::remote-execution block missing from generated buildstream-ci.conf"
+            exit 1
+          fi
+          echo "Remote execution enabled: yes"
+        else
+          echo "Remote execution enabled: no"
+        fi
+
         echo "=== BuildStream CI config ==="
         cat buildstream-ci.conf
 
@@ -206,6 +224,7 @@ runs:
               client-cert: /src/client.crt
 
         BSTCONFPUSH
+          cp buildstream-push.conf logs/buildstream-push.conf
           echo "=== BuildStream push config ==="
           cat buildstream-push.conf
         fi

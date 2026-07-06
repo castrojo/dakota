@@ -141,6 +141,8 @@ The rationalizations that have caused real production failures:
 
 **Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
 
+**Remote-execution sanity check:** when `enable-remote-execution: 'true'`, the generated `buildstream-ci.conf` must contain a real `remote-execution:` block. The workflow now stores the generated config in the `logs/` artifact and fails fast if the block is missing or the remote cache credentials are absent.
+
 ## ⚠️ Pre-Commit BST Syntax Gate
 
 For any change to `project.conf`, `*.bst` elements, or `Justfile`:
@@ -281,6 +283,39 @@ gh run list --repo projectbluefin/dakota --limit 5
 A cold `build.yml` run can keep `Build OCI image with BuildStream` alive past the old 360-minute budget without surfacing a build-element failure. In that case the workflow timeout budget itself is the constraint, not a poisoned CAS blob or an element syntax error. For remote BST builds, give the job and the build step 480 minutes of headroom and inspect the uploaded logs if the run still stalls after that. This was confirmed by the 2026-07-06 run that reached roughly 6 hours while the element graph was still advancing.
 
 A second lesson from the 2026-07-06 investigation: read-only artifact/source-cache pulls alone are not enough to keep GHA builds fast. The workflow must also enable remote execution in the generated BuildStream config so expensive elements are dispatched to the remote CAS server instead of being compiled locally on the runner. The current workflow uses the nested `remote-execution.storage-service` form the action already documents, which avoids the earlier gRPC proxy-mode failure.
+
+### Remote execution and cache are separate; do not toggle blindly (2026-07-06)
+
+The investigation showed that cache access and remote execution are distinct layers in BuildStream:
+
+- `artifacts:` / `source-caches:` make the runner talk to `cache.projectbluefin.io:11002` for pulls and pushes.
+- `remote-execution:` is what tells BuildStream to dispatch expensive build actions to the remote CAS worker pool instead of letting the runner do the work locally.
+
+The earlier loop of re-enabling and disabling the feature was not a proof of correctness by itself. A workflow change is only a real fix if it changes the generated config in a way that can be observed in the logs. The working evidence for this change is:
+
+1. `build.yml` passes `enable-remote-execution: 'true'` to the config generator.
+2. The generated `buildstream-ci.conf` contains a `remote-execution:` block with `execution-service`, `storage-service`, and `action-cache-service`.
+3. The BuildStream logs show remote cache activity (`Pulled artifact`, `Pulled source`, `does not have artifact/source cached`) while the build is actively progressing, not merely sitting on the runner.
+
+If a new run is still slow or still times out, do not assume the next change should be another timeout or toggle tweak. The next step is to inspect the first concrete bottleneck from the live logs and the generated config, then change the smallest thing that addresses that verified bottleneck.
+
+Next-run checklist for any future remote-build investigation:
+
+```bash
+# 1. Confirm the workflow still enables RE
+#    (build.yml)
+grep -n "enable-remote-execution" .github/workflows/build.yml
+
+# 2. Confirm the generated config includes a remote-execution block
+#    (from the config-generation step output or uploaded logs)
+grep -n "remote-execution:" buildstream-ci.conf
+
+# 3. Check the build logs for remote cache activity and waiting states
+#    (uploaded buildstream logs artifact)
+grep -E "Pulled artifact|Pulled source|does not have artifact|does not have source|Waiting for the remote build to complete" logs/*/*.log | tail -50
+```
+
+If the logs still show the build stalling without a real remote-execution path, treat that as a configuration problem. If the logs show remote execution but the build still runs long, inspect the active element set and the upstream nightly delta instead of editing workflow knobs again.
 
 ### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
 
