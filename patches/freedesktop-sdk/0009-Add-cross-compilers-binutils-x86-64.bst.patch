@@ -2,6 +2,8 @@ From b7c7a38de3e738940b65197c611fc4863a2c965c Mon Sep 17 00:00:00 2001
 From: Valentin David <me@valentindavid.com>
 Date: Fri, 17 Apr 2026 10:48:50 +0100
 Subject: [PATCH 09/14] Add cross-compilers/binutils-x86-64.bst
+# Upstream-Status: Pending
+# Exit: Drop once freedesktop-sdk ships the x86-64 cross-compiler binutils config in the matching release.
 
 ---
  elements/cross-compilers/binutils-common.yml |  4 +++-

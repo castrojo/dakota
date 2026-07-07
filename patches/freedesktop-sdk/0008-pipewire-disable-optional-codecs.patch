@@ -2,6 +2,8 @@ From 0000000000000000000000000000000000000002 Mon Sep 17 00:00:00 2001
 From: Dakota Maintainers <dakota@projectbluefin.io>
 Date: Wed, 28 May 2026 00:00:00 +0000
 Subject: [PATCH 08/11] pipewire: disable optional codecs and heavy deps
+# Upstream-Status: Pending
+# Exit: Drop once upstream freedesktop-sdk ships PipeWire >= 1.6.1 with the same codec defaults.
 
 Disable build-time dependencies that are not present in the fdsdk
 sysroot and would cause build failures or unwanted pulls:

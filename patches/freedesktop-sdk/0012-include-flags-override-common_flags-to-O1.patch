@@ -1,3 +1,5 @@
+# Upstream-Status: Pending
+# Exit: Drop once the compiler flag override is no longer required for Dakota's current toolchain profile.
 diff --git a/include/flags.yml b/include/flags.yml
 --- a/include/flags.yml
 +++ b/include/flags.yml

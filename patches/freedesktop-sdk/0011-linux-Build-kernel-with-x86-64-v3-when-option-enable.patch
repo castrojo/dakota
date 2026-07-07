@@ -2,6 +2,8 @@ From c49853dd562a06f67bb80fad536723362cfc39ca Mon Sep 17 00:00:00 2001
 From: Ahmed Adan <ahmed.adan@gmail.com>
 Date: Thu, 7 May 2026 20:52:05 -0400
 Subject: [PATCH 11/14] linux: Build kernel with x86-64-v3 when option enabled
+# Upstream-Status: Pending
+# Exit: Drop once freedesktop-sdk defaults the x86-64-v3 kernel build flags in the matching release.
 
 ---
  elements/components/linux.bst | 6 ++++++

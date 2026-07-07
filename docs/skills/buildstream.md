@@ -134,6 +134,10 @@ BST option names only allow alphanumeric characters and underscores. A name like
 
 Changing a `kind: stack` dependency does not always invalidate downstream `compose` outputs in non-strict mode. If a package is present in the graph but missing from the final image, inspect cache behavior before assuming the package element is wrong.
 
+### Patch queues are maintenance debt and need lifecycle headers (2026-07-07)
+
+Dakota's `patches/` directory is still carrying a small downstream patch queue for FSDK and GNOME Build Meta behavior that has not landed in the pinned upstream release yet. Every patch should carry an `Upstream-Status` header plus an `Exit` line so the next engineer can tell whether the workaround is still pending upstream or should be dropped. This is especially important when the patch is only needed because the junction is still older than the stock GNOME OS baseline.
+
 ### Warm-cache builds still take 90-120 min — this is normal (2026-06-23)
 
 Even with a fully warm remote CAS, a full build takes 90-120 min. Common misconception: "cache is hot = fast build." Actual breakdown:

@@ -2,6 +2,8 @@ From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
 From: Dakota Maintainers <dakota@projectbluefin.io>
 Date: Wed, 28 May 2026 00:00:00 +0000
 Subject: [PATCH 07/11] pipewire: bump ref to 1.6.1
+# Upstream-Status: Pending
+# Exit: Drop once upstream freedesktop-sdk ships PipeWire >= 1.6.1 with the same codec defaults.
 
 Squashes the auto-updater's two step bumps (1.4.9 -> 1.6.0 -> 1.6.1)
 into a single ref change. Drop this patch once fdsdk ships >= 1.6.1.

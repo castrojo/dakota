@@ -2,6 +2,8 @@ From 3406fca5fce1561094bc394fb949dbeb5996ce2e Mon Sep 17 00:00:00 2001
 From: Jordan Petridis <jpetridis@gnome.org>
 Date: Mon, 18 Aug 2025 01:06:36 +0100
 Subject: [PATCH 01/14] project: Specify more limits to the CAS configs
+# Upstream-Status: Pending
+# Exit: Drop once freedesktop-sdk carries the CAS retry/timeouts and GNOME CAS server config in the matching 25.08.x release.
 
 These are disabled by default due to backward compatibility
 so we need to explicitly set some values for timeouts and

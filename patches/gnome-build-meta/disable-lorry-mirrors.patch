@@ -2,6 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Dylan Taylor <dylan@dylanmtaylor.com>
 Date: Fri, 11 Apr 2026 00:00:00 +0000
 Subject: [PATCH] Disable lorry-mirrors to avoid 404/403 fetch failures
+# Upstream-Status: Pending
+# Exit: Drop once GNOME Build Meta no longer needs the mirrored include for the current gnome-50 line.
 
 GNOME's lorry-mirrors on gitlab.gnome.org are returning 404/403 for
 crate tarballs and git repos, causing hundreds of failed fetches that
