@@ -168,3 +168,11 @@ Good evidence to gather before changing anything else:
 4. If the build still stalls, inspect the active element graph and the latest upstream nightly delta rather than making another workflow-only change.
 
 This matters because repeat toggles of the same flag can create the false impression that the problem is solved while the build stays in the same state. A real fix must show up in the generated config and in the BuildStream logs. If the config is correct and the logs show remote action cache activity, the next bottleneck is likely an actual element / upstream-cache issue rather than a workflow bug.
+
+### GCC 15 bootstrap ICEs need an element-scoped override, not a global one (2026-07-07)
+
+The `bootstrap/gcc.bst` compile in freedesktop-sdk is a toolchain bootstrap stage, not a user-facing package. When GCC 15.x hits an internal compiler error in that stage, the least invasive fix is to keep the existing project-wide flags and add an element-scoped override to `bootstrap/gcc.bst` rather than broadening the patch to every C/C++ build. The first attempt with `local_flags: "-O0"` exposed a second issue: `_FORTIFY_SOURCE` warnings become fatal when glibc headers are built with `-Werror` and no optimization. The working mitigation is to keep optimization enabled with `local_flags: "-O1 -pipe -Wno-error"` for just that element.
+
+### A project-wide `common_flags` override can break unrelated packages (2026-07-07)
+
+The earlier repo-wide `-O1 -pipe -Wno-error` override stabilized the bootstrap compiler but also triggered a new failure in `gnome-build-meta.bst:core-deps/fdk-aac-free.bst` under GCC 15. The broader change was too invasive because it affected every C/C++ package in the graph, not just the compiler bootstrap step. The correct mitigation is to remove the global override and keep the workaround scoped to the failing bootstrap element, then re-test the previously failing package.
