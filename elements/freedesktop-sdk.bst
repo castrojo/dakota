@@ -46,6 +46,7 @@ config:
     components/pygobject.bst: gnome-build-meta.bst:sdk/pygobject.bst
     components/vala.bst: gnome-build-meta.bst:sdk/vala.bst
     components/libsecret.bst: gnome-build-meta.bst:sdk/libsecret.bst
+    components/frei0r.bst: bluefin/frei0r.bst
 
     # While freedesktop-sdk provides a zenity element, it's the
     # gtk3 version which we don't want, and we also override it
