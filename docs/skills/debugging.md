@@ -169,10 +169,15 @@ Good evidence to gather before changing anything else:
 
 This matters because repeat toggles of the same flag can create the false impression that the problem is solved while the build stays in the same state. A real fix must show up in the generated config and in the BuildStream logs. If the config is correct and the logs show remote action cache activity, the next bottleneck is likely an actual element / upstream-cache issue rather than a workflow bug.
 
-### GCC 15 bootstrap ICEs need an element-scoped override, not a global one (2026-07-07)
+### Ghost-lab BST builds should avoid the broken buildbarn execution path when input-root staging fails (2026-07-07)
 
-The `bootstrap/gcc.bst` compile in freedesktop-sdk is a toolchain bootstrap stage, not a user-facing package. When GCC 15.x hits an internal compiler error in that stage, the least invasive fix is to keep the existing project-wide flags and add an element-scoped override to `bootstrap/gcc.bst` rather than broadening the patch to every C/C++ build. The first attempt with `local_flags: "-O0"` exposed a second issue: `_FORTIFY_SOURCE` warnings become fatal when glibc headers are built with `-Werror` and no optimization. The working mitigation is to keep optimization enabled with `local_flags: "-O1 -pipe -Wno-error"` for just that element.
+The 2026-07-07 ghost-lab failure in `bootstrap/gcc.bst` was not a compiler regression; it was a BuildStream remote-execution input-root staging failure (`Failed to obtain input directory ".": Shard 1: Object not found`). The cluster workflow was routing both the remote execution and the artifact/source-cache path through the local buildbarn frontend, and that path failed before the compiler ever got a clean input tree.
 
-### A project-wide `common_flags` override can break unrelated packages (2026-07-07)
+The more reliable lab fallback is to keep the build local to the cluster runner, use the shared project caches for read-only artifact/source pulls, and avoid remote execution for this path. That preserves the speed advantage of the persistent hostPath BST cache while removing the broken buildbarn execution/storage hop from the hot path.
 
-The earlier repo-wide `-O1 -pipe -Wno-error` override stabilized the bootstrap compiler but also triggered a new failure in `gnome-build-meta.bst:core-deps/fdk-aac-free.bst` under GCC 15. The broader change was too invasive because it affected every C/C++ package in the graph, not just the compiler bootstrap step. The correct mitigation is to remove the global override and keep the workaround scoped to the failing bootstrap element, then re-test the previously failing package.
+### Align freedesktop-sdk patch queue 100% with upstream GNOME OS (2026-07-07)
+
+Carrying custom local patches or build flag overrides in the `freedesktop-sdk` junction (such as hacking Pipewire versions or adding custom GCC 15 compiler workarounds) alters the sub-project config and invalidates the cache keys for every single element in that junction. This forces the runners to build the entire base OS—including compiler toolchains, glibc, and systemd—from source, causing extremely long compile times, compiler crashes, and OOMs.
+
+By synchronizing our local `patches/freedesktop-sdk/` directory to be exactly identical to upstream `gnome-build-meta`'s patch queue, our cache keys match GNOME OS's exactly. BuildStream can then pull the entire base toolchain and OS pre-built from the `gbm.gnome.org` cache, eliminating local compile steps and toolchain failure modes entirely.
+
