@@ -44,9 +44,9 @@ runs:
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
-          # GCC bootstrap stage1 is unstable above 2 concurrent jobs in CI.
-          # Keep this low to avoid ICEs during the cross-compiler build.
-          max-jobs: 2
+          # GCC/cmake bootstrap stages are unstable above 1 concurrent job in CI.
+          # Keep this at 1 to avoid ICEs during the toolchain build.
+          max-jobs: 1
         BSTCONFBUILD
           else
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
