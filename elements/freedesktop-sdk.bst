@@ -9,6 +9,9 @@ sources:
   path: patches/freedesktop-sdk
 
 config:
+  variables:
+    # Build with -O1 optimization globally in freedesktop-sdk to avoid compiler ICEs/segfaults under GCC 15
+    common_flags: "-O1 -pipe"
   options:
     target_arch: '%{arch}'
     (?):

@@ -27,8 +27,8 @@ runs:
         cat > buildstream-ci.conf <<'BSTCONF'
         scheduler:
           on-error: continue
-          fetchers: 16
-          builders: 1
+          fetchers: 32
+          builders: 4
           network-retries: 3
 
         logging:
@@ -44,9 +44,9 @@ runs:
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
-          # GCC/cmake bootstrap stages are unstable above 1 concurrent job in CI.
-          # Keep this at 1 to avoid ICEs during the toolchain build.
-          max-jobs: 1
+          # GCC/bootstrap toolchain compiles are stabilized with -O1 optimization in freedesktop-sdk.bst.
+          # Use 8 parallel jobs for high-performance builds.
+          max-jobs: 8
         BSTCONFBUILD
           else
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
