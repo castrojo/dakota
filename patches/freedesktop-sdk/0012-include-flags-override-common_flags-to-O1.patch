@@ -1,0 +1,11 @@
+diff --git a/include/flags.yml b/include/flags.yml
+--- a/include/flags.yml
++++ b/include/flags.yml
+@@ -1,6 +1,6 @@
+ variables:
+   # C/C++ compiler flags used everywhere (including bootstrapping)
+   #
+-  common_flags: "-O2 -pipe"
++  common_flags: "-O1 -pipe -Wno-error"
+ 
+   # Feature specific flags enabled in regular builds.
