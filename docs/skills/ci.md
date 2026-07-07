@@ -5,6 +5,7 @@ metadata:
   context7-sources:
     - /websites/github_en_actions
     - /bootc-dev/bootc
+    - /apache/buildstream
 ---
 
 # CI Router
