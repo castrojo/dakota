@@ -182,7 +182,7 @@ git push --force-with-lease origin <branch-name>
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Build OOM or hangs | Memory pressure with 4 builders | Check element build resource usage; for GCC/bootstrap ICEs, lower BuildStream scheduler builders/max-jobs in the generated CI config before retrying. In this repo that means keeping `build.max-jobs: 1` in the generated `buildstream-ci.conf` for remote-execution builds. |
+| Build OOM or hangs | Memory pressure with 4 builders | Check element build resource usage; for GCC/bootstrap ICEs, lower BuildStream scheduler builders/max-jobs in the generated CI config before retrying. In this repo that means keeping `scheduler.builders: 1` and `build.max-jobs: 1` in the generated `buildstream-ci.conf` for remote-execution builds. |
 | "No space left on device" during **Chunkify** | Overlay copy-ups from `inject-xattrs.py` exhaust the ~1 GB root FS left by `setup-runner`'s BTRFS loopback | Fixed centrally in `chunka@v1` — auto-selects `/var/lib/containers` (BTRFS, ~49 GB) over `/var/tmp` (~1 GB) |
 | "No space left on device" during **Build** | BST cache fills runner disk | Check if any element generates large buildtrees |
 | `bootc container lint` fails | Image structure issues | Check OCI assembly, `/usr/etc` merge |
