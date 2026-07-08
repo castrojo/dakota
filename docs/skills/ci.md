@@ -77,8 +77,18 @@ The rationalizations that have caused real production failures:
    - Need stale PR or queue cleanup → `merge-queue.md`
 3. **Read the actual workflow file before editing.**
 4. **Verify tool behavior via Context7** for GitHub Actions or bootc when changing syntax/flags.
-5. **If a workflow check is failing before the build starts, inspect the composite action and the files it parses.** The `check-bst2-pin` action should run from the checked-out workspace so it reads the repo files in the same place as the caller, instead of assuming its own action directory is the repo root.
-6. **Write back the lesson** to the narrowest skill file, not this router, unless the routing itself changed.
+5. **Write back the lesson** to the narrowest skill file, not this router, unless the routing itself changed.
+
+## Fresh publish verification for testing images
+
+When the task is "publish a fresh testing image" or "why is the image date wrong", verify the live state before changing anything.
+
+1. Start with the GitHub CLI: `gh run list --repo projectbluefin/dakota --limit 10` and `gh run view <run-id> --repo projectbluefin/dakota`.
+2. Check both the build run and the follow-on publish run. A fresh build can be in progress while `ghcr.io/projectbluefin/dakota:testing` still points at the previous digest.
+3. Confirm the tag moved with `skopeo inspect docker://ghcr.io/projectbluefin/dakota:testing` and inspect `org.opencontainers.image.created` plus `org.opencontainers.image.revision`.
+4. If the tag still shows the old timestamp or revision, do not assume the publish completed. Wait for the publish workflow or inspect the latest successful publish run.
+
+This is the fast path for stale-image complaints: the image date is usually wrong because the tag was not republished, not because the metadata formatter is broken.
 
 ## Skill Selection Table
 

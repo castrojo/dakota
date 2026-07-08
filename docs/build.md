@@ -19,8 +19,6 @@
 | `elements/gnome-build-meta.bst` | GBM junction — tracks `gnome-50` branch |
 | `elements/bluefin/` | Bluefin-specific elements (~40 elements) |
 | `elements/oci/` | OCI image assembly — layers + final image |
-| `patches/freedesktop-sdk/` | Legacy local junction patches (kept only for historical reference) |
-| `patches/gnome-build-meta/` | Legacy local junction patches (kept only for historical reference) |
 | `patches/linux/` | Kernel patches (via fdsdk linux element) |
 | `files/` | Static files installed by elements |
 | `docs/skills/` | Agent skills — task-focused, lazy-loaded |
