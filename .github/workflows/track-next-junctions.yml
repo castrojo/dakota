@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d
+  BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2
 
 jobs:
   # ── Track core junctions for next (btw stream) ─────────────────

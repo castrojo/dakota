@@ -30,7 +30,7 @@ just lint                         # bootc container lint (requires exported imag
 just bst show oci/bluefin.bst     # inspect element dependency graph
 ```
 
-Builds run inside the pinned `bst2` container. `BST_FLAGS` env var injects flags:
+Builds run inside the `bst2` container image selected by `BST2_IMAGE`/`Justfile` defaults. `BST_FLAGS` env var injects flags:
 
 ```bash
 just bst build oci/bluefin.bst
@@ -190,4 +190,4 @@ wall time — they more than double it and risk 6-hour timeouts with
 - `elements/bluefin/deps.bst` (`kind: stack`) — add new packages here
 - `elements/oci/layers/` — compose chain filters artifacts into the final layer
 - `elements/oci/bluefin.bst` — final OCI assembly script
-- `patches/gnome-build-meta/` — drop `.patch` files here (alphabetical order, no edits to `gnome-build-meta.bst`)
+- Prefer upstream fixes over local patch queues; use repo-local patches only as a short-lived exception when a junction bump cannot carry the fix.

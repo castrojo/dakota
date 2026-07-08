@@ -30,7 +30,7 @@ Use when an upstream junction dependency needs a local patch in Dakota or when m
 
 ## Overview
 
-Dakota applies patches to upstream junctions via `patch_queue` source blocks in the junction `.bst` files. Patches apply in **alphabetical filename order**.
+Dakota currently avoids repo-local junction patches where possible. The build uses the upstream junction refs directly, and the local `patch_queue` overrides were removed so the tree does not carry stale, maintenance-heavy patch sets.
 
 ```text
 patches/gnome-build-meta/   ← patches for gnome-build-meta junction
