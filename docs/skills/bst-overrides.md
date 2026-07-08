@@ -158,3 +158,10 @@ git -C ~/.cache/buildstream/sources/git_repo/<gbm-mirror>.git \
 
 Adding a patch for something already upstream wastes maintenance cycles — junction bump is
 cheaper.
+
+### Use junction overrides to bypass upstream compile regressions without patch-queue drift (2026-07-07)
+
+When an upstream dependency fails to compile from source under newer compilers (like GCC 15 SSE type-safety errors in `components/frei0r.bst`), carrying a patch in the `freedesktop-sdk` patch queue invalidates cache keys globally and forces a slow, heavy base recompilation of the whole OS. 
+
+Instead, leverage the `overrides:` block inside `elements/freedesktop-sdk.bst` to map the troubled upstream element to a local `bluefin/<element>.bst` file. Inside our local element, we can inject targeted compilation flags (such as `local_flags: "-mno-sse4.1"`) to bypass the compiler issue. This keeps the junction's patch queue 100% clean and pristine, preserving full upstream binary cache hits for all other base elements.
+
