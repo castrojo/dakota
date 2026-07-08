@@ -20,8 +20,9 @@ config:
     # Replace the element so the OCI image doesn't have any apps
     core/meta-gnome-core-apps.bst: core/meta-gnome-core-apps.bst
 
-    # Override to track bootc ahead of gnome-build-meta upstream (gnome-50 is at v1.12.1)
-    # Remove when gnome-50 ships bootc >= v1.15.1 and files are identical
+    # Permanent policy: dakota always ships pure upstream bootc (bootc-dev/bootc,
+    # tracked via auto/track-bootc), never gnome-build-meta's pinned version.
+    # Do not remove this override even if gnome-50 catches up.
     gnomeos-deps/bootc.bst: gnomeos-deps/bootc.bst
 
     gnomeos-deps/plymouth-gnome-theme.bst: bluefin/plymouth-bluefin-theme.bst

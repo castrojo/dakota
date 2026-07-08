@@ -183,7 +183,7 @@ Overrides in `elements/gnome-build-meta.bst`:
 |---|---|---|
 | `freedesktop-sdk.bst` | Must pin the exact fdsk ref gbm uses so artifacts pull from gbm.gnome.org | Permanent, but the ref must always equal `elements/freedesktop-sdk.bst` in gbm at our pinned commit |
 | `core/meta-gnome-core-apps.bst` | Strip GNOME core apps from OCI image | Permanent, dakota-specific |
-| `gnomeos-deps/bootc.bst` | Track bootc ahead of upstream (gnome-50 still ships v1.12.1) | Drop when gnome-50 ships bootc >= ours and files are identical |
+| `gnomeos-deps/bootc.bst` | Permanent policy: dakota always ships pure upstream bootc-dev/bootc (auto-tracked), never gbm's pin | Permanent — never remove, even if gnome-50 catches up |
 | `gnomeos-deps/plymouth-gnome-theme.bst` | Bluefin branding | Permanent, dakota-specific |
 | `oci/integration/os-release.bst` | Bluefin os-release | Permanent, dakota-specific |
 | `gnomeos/initramfs/signed-modules.bst` | Unsigned modules (no GNOME signing key) | Permanent, dakota-specific |
