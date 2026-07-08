@@ -20,6 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Check bst2 image pin consistency
+        uses: ./.github/actions/check-bst2-pin
+
       - name: Setup Just
         uses: taiki-e/install-action@50414676f9f5d50a65992c6dd2ed02641263226c # v2
         with:

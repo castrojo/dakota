@@ -85,6 +85,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Check bst2 image pin consistency
+        uses: ./.github/actions/check-bst2-pin
+
       # FIXME: Make the build with JWT work
       # - name: Get JWT token
       #   previously used actions/github-script (kept disabled)
