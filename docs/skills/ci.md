@@ -142,6 +142,8 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 **Cold-cache warmup:** `build.yml` now runs `just warmup <variant>` before the full `just bst build` phase. The warmup resolves the shared dependency graph, builds a small set of core elements, and pushes those artifacts into the remote CAS while still honoring the workflow's single-build-at-a-time rule. It is intentionally lightweight so a cold runner can seed the remote cache without turning into a second full build.
 
+**Warmup tier progress reporting:** after tier 1 (graph resolve) and after every tier build+push, `just warmup` counts `bst show --deps all --format '%{state}'` for the full variant target and prints `==> Progress after <tier>: N/TOTAL cached (P%)`, also appended as a table row to `$GITHUB_STEP_SUMMARY`. Two gotchas baked into the implementation: `bst show` emits ANSI color codes even non-interactively (strip with `sed 's/\x1b\[[0-9;]*m//g'` before counting), and `%{state}` reflects the *runner-local* cache, so the percentage measures what this runner can stage without pulling — exactly the build-progress signal wanted at each seeding break.
+
 ## Remote Cache Architecture
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.

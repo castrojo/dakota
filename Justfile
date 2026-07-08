@@ -94,9 +94,11 @@ warmup variant="default":
     case "{{variant}}" in
         default)
             WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin/deps.bst")
+            FINAL_TARGET="oci/bluefin.bst"
             ;;
         nvidia)
             WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin-nvidia/deps.bst")
+            FINAL_TARGET="oci/bluefin-nvidia.bst"
             ;;
         *)
             echo "ERROR: unknown variant '{{variant}}' (expected: default | nvidia)" >&2
@@ -107,10 +109,43 @@ warmup variant="default":
     : > "$MARKER_FILE"
     echo "==> Warmup variant: {{variant}}" | tee -a "$MARKER_FILE"
 
+    # Report how much of the FULL variant graph is locally cached. Runs at each
+    # tier break so build progress is observable from the job log and the
+    # Actions step summary, not just at the end.
+    report_progress() {
+        local label="$1"
+        local states total cached buildable waiting failed pct
+        states=$(BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+            just bst show --deps all --format '%{state}' "$FINAL_TARGET" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g') || {
+            echo "WARN: progress query failed after ${label}" | tee -a "$MARKER_FILE"
+            return 0
+        }
+        total=$(echo "$states" | grep -c . || true)
+        cached=$(echo "$states" | grep -cx 'cached' || true)
+        buildable=$(echo "$states" | grep -cx 'buildable' || true)
+        waiting=$(echo "$states" | grep -cx 'waiting' || true)
+        failed=$(echo "$states" | grep -cx 'failed' || true)
+        pct=$(( total > 0 ? cached * 100 / total : 0 ))
+        local line="==> Progress after ${label}: ${cached}/${total} cached (${pct}%) — ${buildable} buildable, ${waiting} waiting, ${failed} failed"
+        echo "$line" | tee -a "$MARKER_FILE"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "| ${label} | ${cached}/${total} | ${pct}% | ${buildable} | ${waiting} | ${failed} |" >> "$GITHUB_STEP_SUMMARY"
+        fi
+    }
+
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        {
+            echo "### Warmup progress ({{variant}} → ${FINAL_TARGET})"
+            echo "| Stage | Cached | % | Buildable | Waiting | Failed |"
+            echo "|---|---|---|---|---|---|"
+        } >> "$GITHUB_STEP_SUMMARY"
+    fi
+
     echo "==> Warmup tier 1: resolve shared dependency graph" | tee -a "$MARKER_FILE"
     BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
         just bst show --deps all --format '%{name}' "${WARMUP_TARGETS[0]}" 2>&1 | tee logs/warmup-tier1-show.log
     echo "warmup-tier1-resolved target=${WARMUP_TARGETS[0]}" | tee -a "$MARKER_FILE"
+    report_progress "tier 1 (graph resolve)"
 
     for idx in "${!WARMUP_TARGETS[@]}"; do
         TARGET="${WARMUP_TARGETS[$idx]}"
@@ -125,6 +160,7 @@ warmup variant="default":
             echo "warmup-tier${TIER}-push-skipped target=${TARGET}" | tee -a "$MARKER_FILE"
         fi
         echo "warmup-tier${TIER}-complete target=${TARGET}" | tee -a "$MARKER_FILE"
+        report_progress "tier ${TIER} (${TARGET})"
     done
 
 # ── Build ─────────────────────────────────────────────────────────────
