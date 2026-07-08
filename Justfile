@@ -72,6 +72,61 @@ validate:
     just bst show --deps all oci/bluefin.bst
     just bst show --deps all oci/bluefin-nvidia.bst
 
+# Warm up the shared BuildStream graph and variant-specific dependencies before
+# the full OCI build so the remote CAS gets seeded while the workflow remains
+# serial.
+[group('build')]
+warmup variant="default":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mkdir -p logs
+    MARKER_FILE="logs/warmup-{{variant}}.marker"
+
+    if [ ! -f /src/buildstream-ci.conf ]; then
+        echo "WARN: /src/buildstream-ci.conf not found; skipping warmup" | tee -a "$MARKER_FILE"
+        exit 0
+    fi
+    if [ ! -f /src/buildstream-push.conf ]; then
+        echo "WARN: /src/buildstream-push.conf not found; warmup will build without push" | tee -a "$MARKER_FILE"
+    fi
+
+    case "{{variant}}" in
+        default)
+            WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin/deps.bst")
+            ;;
+        nvidia)
+            WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin-nvidia/deps.bst")
+            ;;
+        *)
+            echo "ERROR: unknown variant '{{variant}}' (expected: default | nvidia)" >&2
+            exit 1
+            ;;
+    esac
+
+    : > "$MARKER_FILE"
+    echo "==> Warmup variant: {{variant}}" | tee -a "$MARKER_FILE"
+
+    echo "==> Warmup tier 1: resolve shared dependency graph" | tee -a "$MARKER_FILE"
+    BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+        just bst show --deps all --format '%{name}' "${WARMUP_TARGETS[0]}" 2>&1 | tee logs/warmup-tier1-show.log
+    echo "warmup-tier1-resolved target=${WARMUP_TARGETS[0]}" | tee -a "$MARKER_FILE"
+
+    for idx in "${!WARMUP_TARGETS[@]}"; do
+        TARGET="${WARMUP_TARGETS[$idx]}"
+        TIER=$((idx + 2))
+        echo "==> Warmup tier ${TIER}: build ${TARGET}" | tee -a "$MARKER_FILE"
+        BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+            just bst build "$TARGET" 2>&1 | tee "logs/warmup-tier${TIER}-build.log"
+        if [ -f /src/buildstream-push.conf ]; then
+            BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf" \
+                just bst artifact push --deps run "$TARGET" 2>&1 | tee "logs/warmup-tier${TIER}-push.log"
+        else
+            echo "warmup-tier${TIER}-push-skipped target=${TARGET}" | tee -a "$MARKER_FILE"
+        fi
+        echo "warmup-tier${TIER}-complete target=${TARGET}" | tee -a "$MARKER_FILE"
+    done
+
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.
 #

@@ -143,6 +143,13 @@ jobs:
           enable-remote-execution: 'true'
           enable-push: 'false'
 
+      # Warm the shared BuildStream graph and variant-specific dependencies before
+      # the full variant build so cache.projectbluefin.io gets seeded while the
+      # existing job-level serialization remains intact.
+      - name: Warmup BuildStream cache before full variant build
+        run: |
+          just warmup ${{ matrix.variant }}
+
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
       # bst2 container. CI-specific flags (--no-interactive, --config)

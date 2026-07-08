@@ -140,6 +140,8 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 **ARM build:** `build-aarch64.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch. This serializes ARM after x86 CAS writes complete, preventing contention. The previous Tuesday cron trigger was removed.
 
+**Cold-cache warmup:** `build.yml` now runs `just warmup <variant>` before the full `just bst build` phase. The warmup resolves the shared dependency graph, builds a small set of core elements, and pushes those artifacts into the remote CAS while still honoring the workflow's single-build-at-a-time rule. It is intentionally lightweight so a cold runner can seed the remote cache without turning into a second full build.
+
 ## Remote Cache Architecture
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
