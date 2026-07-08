@@ -77,7 +77,7 @@ The rationalizations that have caused real production failures:
    - Need stale PR or queue cleanup → `merge-queue.md`
 3. **Read the actual workflow file before editing.**
 4. **Verify tool behavior via Context7** for GitHub Actions or bootc when changing syntax/flags.
-5. **If a workflow check is failing before the build starts, inspect the composite action and the files it parses.** A brittle regex can block the whole build before BST even starts; the `check-bst2-pin` action should tolerate both the `bst2_image` default in `Justfile` and the `BST2_IMAGE` value in `.github/workflows/track-bst-sources.yml`.
+5. **If a workflow check is failing before the build starts, inspect the composite action and the files it parses.** The `check-bst2-pin` action should run from the checked-out workspace so it reads the repo files in the same place as the caller, instead of assuming its own action directory is the repo root.
 6. **Write back the lesson** to the narrowest skill file, not this router, unless the routing itself changed.
 
 ## Skill Selection Table
