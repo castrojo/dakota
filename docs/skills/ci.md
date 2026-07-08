@@ -77,7 +77,7 @@ The rationalizations that have caused real production failures:
    - Need stale PR or queue cleanup → `merge-queue.md`
 3. **Read the actual workflow file before editing.**
 4. **Verify tool behavior via Context7** for GitHub Actions or bootc when changing syntax/flags.
-5. **If a workflow check is failing before the build starts, inspect the composite action and the files it parses.** The `check-bst2-pin` action should run from the checked-out workspace so it reads the repo files in the same place as the caller, instead of assuming its own action directory is the repo root.
+5. **Keep workflow-only checks minimal and repository-agnostic.** Avoid custom pin-drift gates that do not exist upstream and do not block the real build unless there is a clear, documented failure mode. If a workflow check is needed, keep it simple and read from the checked-out workspace rather than introducing extra repo-specific logic.
 6. **Write back the lesson** to the narrowest skill file, not this router, unless the routing itself changed.
 
 ## Skill Selection Table
