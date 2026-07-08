@@ -172,6 +172,67 @@ git -C ~/.cache/buildstream/sources/git_repo/<gbm-mirror>.git \
 Adding a patch for something already upstream wastes maintenance cycles — junction bump is
 cheaper.
 
+### Override ledger — full audit against gnome-50 (2026-07-08)
+
+Case-by-case status of every junction override, audited against gbm 50.2-2 (c74f623)
+and fdsk 25.08.13. Re-run this audit at every gbm junction bump.
+
+Overrides in `elements/gnome-build-meta.bst`:
+
+| Override | Why | Exit condition |
+|---|---|---|
+| `freedesktop-sdk.bst` | Must pin the exact fdsk ref gbm uses so artifacts pull from gbm.gnome.org | Permanent, but the ref must always equal `elements/freedesktop-sdk.bst` in gbm at our pinned commit |
+| `core/meta-gnome-core-apps.bst` | Strip GNOME core apps from OCI image | Permanent, dakota-specific |
+| `gnomeos-deps/bootc.bst` | Track bootc ahead of upstream (gnome-50 still ships v1.12.1) | Drop when gnome-50 ships bootc >= ours and files are identical |
+| `gnomeos-deps/plymouth-gnome-theme.bst` | Bluefin branding | Permanent, dakota-specific |
+| `oci/integration/os-release.bst` | Bluefin os-release | Permanent, dakota-specific |
+| `gnomeos/initramfs/signed-modules.bst` | Unsigned modules (no GNOME signing key) | Permanent, dakota-specific |
+| `plugins/buildstream-plugins*.bst` | Share plugin junctions with parent project | Permanent, structural |
+
+The fdsk component-override block in `elements/freedesktop-sdk.bst` must be byte-equivalent
+to gbm's own `elements/freedesktop-sdk.bst` overrides (verified identical 2026-07-08). Diff
+check at every bump:
+
+```bash
+curl -fsSL "https://gitlab.gnome.org/GNOME/gnome-build-meta/-/raw/<gbm-sha>/elements/freedesktop-sdk.bst" -o /tmp/gbm-fdsk.bst
+diff <(grep -oE 'components/[^:]+:.*' /tmp/gbm-fdsk.bst | sort) \
+     <(grep -oE 'components/[^:]+:.*' elements/freedesktop-sdk.bst | sed 's/gnome-build-meta.bst://' | sort)
+```
+
+### fdsk junction ref must match the ref gbm pins — cache reuse depends on it (2026-07-08)
+
+Dakota overrides gbm's `freedesktop-sdk.bst` with its own junction element. If our fdsk
+ref differs from the one gbm pins at our gbm commit, every fdsk-derived element gets a
+different cache key than upstream and gbm.gnome.org artifacts become unreachable —
+silently forcing local compiles. Found in the wild: testing pinned fdsk 25.08.12 while
+gbm 50.2-2 expects 25.08.13.
+
+Check before merging any junction bump:
+
+```bash
+curl -fsSL "https://gitlab.gnome.org/GNOME/gnome-build-meta/-/raw/<gbm-sha>/elements/freedesktop-sdk.bst" | grep -m1 ref:
+grep -m1 ref: elements/freedesktop-sdk.bst   # must match
+```
+
+Auto-generated `auto/track-core-junctions` PRs bump both atomically, but if they go
+stale against testing (e.g. after a patch-queue removal), rebase to a clean one-line
+ref change rather than merging the stale diff — stale branches can resurrect deleted
+`patch_queue` sources.
+
+### What busts a BST cache key (2026-07-08)
+
+Grounded in /apache/buildstream arch_cachekeys.md. An element's strong key covers: its
+own config/variables/env, source refs, and all build-dependency keys, recursively.
+
+- Junction ref change → invalidates every element that junction provides (widest cone)
+- `project.conf` options/variables → project-wide invalidation
+- Leaf element ref bump (tailscale, common, bootc) → only that element + reverse deps
+- OCI base-layer bump (common) → OCI layer chain only, no compile invalidation
+- Workflow/Justfile/docs changes → zero cache impact
+
+Merge ordering rule for queued update PRs: leaf bumps first, junction bumps last, one
+at a time, each verified green before the next.
+
 ### Prefer upstream alignment over local compiler workarounds (2026-07-08)
 
 When an upstream dependency fails under the baseline toolchain, do not invent a local GCC toolchain, local compiler flags, or a custom element to bypass the issue. That approach creates maintenance debt and diverges Dakota from the upstream GNOME OS baseline.
