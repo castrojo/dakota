@@ -2406,3 +2406,36 @@ flow (issue 1073). Key operational facts for CI debugging:
 **SHA-based freshness check.** `execute-release.yml` compares the `:testing` image digest to the current `:stable` digest. If they are equal, promotion is skipped (nothing new to ship). If different, the promote path runs: cosign verify → boot-check → skopeo copy → fast-forward main. The SHA used for cosign verify comes from `github.event.workflow_run.head_sha`, not a live `:testing` tag lookup.
 
 **`testing` is now the default GitHub branch.** All PRs target `testing`. The old `main`-targeting PRs pattern is gone. `main` is a bookmark.
+
+### Semi-cold RE builds overflow the runner disk — "Cache too full" cascade (2026-07-09)
+
+Run 29037334809 died with 553 consecutive `FAILURE Cache too full` element failures
+(~14s apart) starting ~38 min into the build phase. Underlying error from
+buildbox-casd: `CaptureFiles ... RESOURCE_EXHAUSTED` /
+`OutOfSpaceException: Insufficient storage quota` (`buildboxcommon_lrulocalcas.cpp`).
+
+**Mechanism:** with remote execution enabled (nested `remote-execution.storage-service`,
+no top-level `cache.storage-service`), BST mirrors every remotely-built element's output
+files into the runner's local CAS at `~/.cache/buildstream`. On a warm run only the OCI
+assembly deps are pulled and everything fits in the ~53 GB free on `/`. On a semi-cold
+run (e.g. after a junction bump invalidates cache keys), every element in the ~9k graph
+lands locally, including build-only toolchain artifacts — the disk fills, and BST cannot
+prune mid-session because every pulled object is referenced by the current session's
+targets. `retry-failed: True` then churns fast failures forever; the run never recovers.
+
+**Detection:** `grep -c "Cache too full"` in the build log. One occurrence means the
+local disk is exhausted — cancel the run; it will not recover.
+
+**Fix (build.yml "Provision BST cache volume" step):** span the free space of `/`
+(~40 GB) and `/mnt` (~55 GB) with two loopback files joined into a single btrfs
+(`-d single -m single`) mounted at `~/.cache/buildstream` with
+`compress-force=zstd:2,noatime`. CAS objects are mostly ELF binaries and debug info,
+so zstd roughly doubles effective capacity (~95 GB raw -> ~150+ GB effective).
+
+**Do not** reach for top-level `cache.storage-service` to keep content remote — that
+reintroduces two documented failures: gRPC flooding after 3.5h (2026-06-24) and remote
+per-client quota exhaustion (2026-06-09).
+
+**Fallback if 150 GB is still not enough:** phase the build (`bst build` a subset,
+`bst artifact push`, wipe local CAS, continue) — later phases re-pull only the runtime
+deps of remaining elements.

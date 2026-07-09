@@ -291,6 +291,39 @@ jobs:
           update-podman: true
           install-tools: '["just"]'
 
+      # ── Provision BST cache volume ────────────────────────────────────
+      # Semi-cold RE builds mirror every remotely-built artifact into the
+      # runner's local CAS (~/.cache/buildstream). The full dakota graph
+      # exceeds the ~53 GB free on / — run 29037334809 died with 553
+      # cascading "Cache too full" (RESOURCE_EXHAUSTED from buildbox-casd
+      # CaptureFiles) failures once the disk filled. BST cannot prune
+      # mid-session because every pulled object is referenced by the
+      # current build targets.
+      #
+      # Fix: span the free space on / and /mnt with two loopback files,
+      # join them in a single btrfs (data single) mounted with
+      # compress-force=zstd:2 — CAS objects are mostly ELF binaries and
+      # debug info, so compression roughly doubles effective capacity
+      # (~95 GB raw -> ~150+ GB effective).
+      #
+      # /mnt also hosts setup-runner's sparse /var/lib/containers loopback,
+      # but the build job only stores the bst2 image there (~4 GB), so a
+      # 55 GB allocation is safe.
+      - name: Provision BST cache volume
+        run: |
+          set -euo pipefail
+          sudo truncate -s 40G /home/runner/bst-cache-0.img
+          sudo truncate -s 55G /mnt/bst-cache-1.img
+          DEV0=$(sudo losetup --find --show /home/runner/bst-cache-0.img)
+          DEV1=$(sudo losetup --find --show /mnt/bst-cache-1.img)
+          sudo mkfs.btrfs -q -d single -m single "$DEV0" "$DEV1"
+          sudo btrfs device scan
+          mkdir -p "$HOME/.cache/buildstream"
+          sudo mount -o compress-force=zstd:2,noatime "$DEV0" "$HOME/.cache/buildstream"
+          sudo chown "$(id -u):$(id -g)" "$HOME/.cache/buildstream"
+          echo "==> BST cache volume:"
+          df -h "$HOME/.cache/buildstream"
+
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
       # - on-error: continue  -> find ALL failures, don't stop at first
