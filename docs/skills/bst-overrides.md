@@ -5,6 +5,7 @@ description: Governs when and how to create junction overrides in dakota. Upstre
 metadata:
   context7-sources:
     - /apache/buildstream
+    - /websites/github_en_actions
 ---
 
 # BST Junction Overrides
@@ -219,6 +220,12 @@ stale against testing (e.g. after a patch-queue removal), rebase to a clean one-
 ref change rather than merging the stale diff — stale branches can resurrect deleted
 `patch_queue` sources.
 
+`patches/freedesktop-sdk/` must also stay byte-identical to GBM's
+`patches/freedesktop-sdk/` directory at the pinned GBM commit. `just
+patch-drift-check` downloads GBM's patch queue for that commit and diffs it against
+the local queue; the Validate workflow runs it in CI so drift fails before cache
+keys diverge from gbm.gnome.org artifacts.
+
 ### What busts a BST cache key (2026-07-08)
 
 Grounded in /apache/buildstream arch_cachekeys.md. An element's strong key covers: its
@@ -276,4 +283,3 @@ the element as `failed` and retries exit immediately. Clear it with
 
 When passing `--format` strings to `just bst show`, avoid spaces — the Justfile
 recipe word-splits arguments. Use `%{name}--%{state}` style separators.
-

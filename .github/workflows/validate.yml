@@ -42,6 +42,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check freedesktop-sdk patch drift
+        run: just patch-drift-check
+
       - name: Validate BST element graph (default)
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive

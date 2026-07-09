@@ -1,6 +1,13 @@
 name: Build Bluefin dakota
 
 on:
+  push:
+    branches: [testing]
+    paths:
+      - 'elements/**'
+      - 'patches/**'
+      - 'project.conf'
+      - 'include/**'
   # Fires daily at 13:00 UTC — 5 hours after the gnome-build-meta nightly
   # (~08:00 UTC) to absorb nightly deltas before building.
   # NOTE: schedule triggers run on the default branch; set testing as the
@@ -19,13 +26,26 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
+# Serialize workflow runs across branches/workflows that may write to the shared
+# BuildStream CAS. Pull-only warmup shard builds still run in parallel inside one
+# workflow run; only separate workflow runs queue here.
+#
+# Last-write-wins semantics: GitHub keeps at most one pending run per
+# concurrency group, so rapid successive pushes to testing cancel the
+# intermediate queued runs — only the newest pending run builds and
+# publishes. This is accepted by design; the daily 13:00 UTC schedule is
+# the guaranteed catch-up build for anything that got superseded.
+concurrency:
+  group: dakota-bst-build-global
+  cancel-in-progress: false
+
 jobs:
   # ── Default-branch precondition ──────────────────────────────────────────
   # Scheduled triggers always run on the repository default branch. If the
   # default branch is not 'testing', the daily build silently targets the
   # wrong ref. Fail fast and loudly when that invariant is violated.
   verify-default-branch:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -40,29 +60,166 @@ jobs:
             exit 1
           fi
 
+  # ── Pull-only warmup shards ─────────────────────────────────────────────
+  # BuildStream cache warmup is split into a WebKit shard and a rest-of-graph
+  # shard. Shard builds run with remote execution AND push disabled: RE would
+  # write action inputs/results through the RE storage-service, making two
+  # parallel shards two concurrent CAS writers (violates the one-writer rule).
+  # With RE off, builds compile on the runner, are genuinely read-only toward
+  # the CAS, and every built artifact is guaranteed to land in the runner-local
+  # cache — which the push jobs then need.
+  #
+  # GitHub Actions job concurrency would serialize an entire shard job, not
+  # just its final push, so pushing happens in follow-up jobs (matrix
+  # max-parallel: 1). The build->push handoff uses a same-run workflow
+  # artifact (if-no-files-found: error), NOT actions/cache: the cache has a
+  # 10 GB repo-wide LRU limit and its save failures are silent warnings,
+  # which would degrade to "CAS never gets seeded" without any red X.
+  # actions/cache is used only as a best-effort L1 warm-start for future runs.
+  warmup-build-shards:
+    needs: [verify-default-branch]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [webkit, rest]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup runner
+        uses: projectbluefin/actions/bootc-build/setup-runner@v1
+        with:
+          storage-backend: btrfs
+          update-podman: true
+          install-tools: '["just"]'
+
+      - name: Restore BST workspace cache (x86_64 warmup)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/buildstream
+            !~/.cache/buildstream/buildtrees
+            !~/.cache/buildstream/logs
+          key: bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-${{ hashFiles('elements/freedesktop-sdk.bst', 'elements/gnome-build-meta.bst', 'patches/**', 'project.conf', 'include/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-${{ hashFiles('elements/freedesktop-sdk.bst', 'elements/gnome-build-meta.bst', 'patches/**', 'project.conf', 'include/**') }}-
+            bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-
+            bst-warm-x86_64-${{ matrix.shard }}-
+            bst-warm-x86_64-
+
+      - name: Generate BuildStream CI config
+        env:
+          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
+          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+        uses: ./.github/actions/generate-bst-ci-config
+        with:
+          # RE must stay off: see the shard design comment above.
+          enable-remote-execution: 'false'
+          enable-push: 'false'
+
+      - name: Build warmup shard
+        run: just warmup-shard ${{ matrix.shard }}
+
+      # Same-run handoff to the serialized push jobs. Buildtrees and logs are
+      # excluded; CAS blobs are already compressed, so compression-level: 0.
+      - name: Pack BST cache for push handoff
+        run: tar -C "$HOME" --exclude=.cache/buildstream/logs --exclude=.cache/buildstream/buildtrees -cf "$RUNNER_TEMP/bst-cache-shard.tar" .cache/buildstream
+
+      - name: Upload BST cache transport artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bst-warm-transport-${{ matrix.shard }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/bst-cache-shard.tar
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload warmup logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: buildstream-warmup-logs-x86_64-${{ matrix.shard }}-${{ github.sha }}
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  warmup-push-shards:
+    needs: [warmup-build-shards]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [webkit, rest]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup runner
+        uses: projectbluefin/actions/bootc-build/setup-runner@v1
+        with:
+          storage-backend: btrfs
+          update-podman: true
+          install-tools: '["just"]'
+
+      # Exact same-run transport artifact only — never actions/cache with
+      # fallback keys, which can silently restore a stale cache and push
+      # nothing. download-artifact fails the job if the artifact is missing.
+      - name: Download BST cache transport artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: bst-warm-transport-${{ matrix.shard }}-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - name: Unpack BST cache
+        run: tar -C "$HOME" -xf "$RUNNER_TEMP/bst-cache-shard.tar"
+
+      - name: Generate BuildStream push config
+        env:
+          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
+          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
+        uses: ./.github/actions/generate-bst-ci-config
+        with:
+          enable-remote-execution: 'false'
+          enable-push: 'true'
+
+      - name: Push warmup shard artifacts to remote CAS
+        run: just warmup-shard-push ${{ matrix.shard }}
+
+      - name: Upload warmup push logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: buildstream-warmup-push-logs-x86_64-${{ matrix.shard }}-${{ github.sha }}
+          path: logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ── Full OCI build ────────────────────────────────────────────────────────
-  # Fires on schedule (daily 13:00 UTC) and workflow_dispatch only.
+  # Fires on schedule, workflow_dispatch, and key-busting pushes to testing.
   # merge_group is intentionally excluded: the merge queue requires only
   # `validate` to pass; a full BST build triggered by merge_group is always
   # cancelled when the PR merges (before the 5h build can finish), which
   # wastes the CAS slot and starves the scheduled build.
   build:
-    needs: [verify-default-branch]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Deliberate ordering: the full build runs with remote execution enabled,
+    # which makes it a CAS writer. It must not overlap the warmup push jobs
+    # (also CAS writers) within this run. On warm runs the warmup phase is
+    # pull-only and completes in minutes, so this gate is cheap.
+    needs: [warmup-push-shards]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 480
-    # Global BST concurrency: only one BuildStream build may run across
-    # ALL branches and workflows. The remote CAS at cache.projectbluefin.io
-    # is rate-limited and supports a single build at a time — concurrent
-    # builds tank cache hit rate and risk 6-hour timeouts. The same group
-    # name is used by nightly-next-build.yml so cross-workflow dispatch
-    # also serializes here. cancel-in-progress: false so an in-flight
-    # build on one branch is never killed by a push to another branch.
-    concurrency:
-      group: dakota-bst-build-global
-      cancel-in-progress: false
-    # Variants build serially — one BST build at a time per the hard rule.
-    # Shared runners and CAS write bandwidth cannot sustain concurrent builds.
+    # Variants build serially so the final OCI artifact pushes never overlap.
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -142,13 +299,6 @@ jobs:
           # to the remote cache server instead of being compiled entirely on the runner.
           enable-remote-execution: 'true'
           enable-push: 'false'
-
-      # Warm the shared BuildStream graph and variant-specific dependencies before
-      # the full variant build so cache.projectbluefin.io gets seeded while the
-      # existing job-level serialization remains intact.
-      - name: Warmup BuildStream cache before full variant build
-        run: |
-          just warmup ${{ matrix.variant }}
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the

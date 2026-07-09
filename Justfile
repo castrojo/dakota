@@ -72,6 +72,79 @@ validate:
     just bst show --deps all oci/bluefin.bst
     just bst show --deps all oci/bluefin-nvidia.bst
 
+# Verify the local freedesktop-sdk patch queue matches the pinned GBM ref.
+[group('dev')]
+patch-drift-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    gbm_ref=$(awk '/^[[:space:]]*ref: / { print $2; exit }' elements/gnome-build-meta.bst)
+    if [[ ! "$gbm_ref" =~ -g([0-9a-f]{40})$ ]]; then
+        echo "ERROR: could not extract GBM commit SHA from elements/gnome-build-meta.bst ref: ${gbm_ref}" >&2
+        exit 1
+    fi
+    gbm_sha="${BASH_REMATCH[1]}"
+
+    local_dir="patches/freedesktop-sdk"
+    workdir=".cache/patch-drift-check.$$"
+    rm -rf "$workdir"
+    mkdir -p "$workdir/upstream"
+    trap 'rm -rf "$workdir"' EXIT
+
+    api_url="https://gitlab.gnome.org/api/v4/projects/GNOME%2Fgnome-build-meta/repository/tree?path=patches/freedesktop-sdk&ref=${gbm_sha}&per_page=100"
+    curl -fsSL "$api_url" \
+        | python3 -c 'import json, sys; print("\n".join(sorted(item["name"] for item in json.load(sys.stdin) if item.get("type") == "blob")))' \
+        > "$workdir/upstream-files"
+
+    if [ ! -s "$workdir/upstream-files" ]; then
+        echo "ERROR: GBM patches/freedesktop-sdk listing is empty at ${gbm_sha}" >&2
+        exit 1
+    fi
+
+    while IFS= read -r name; do
+        encoded=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$name")
+        curl -fsSL "https://gitlab.gnome.org/GNOME/gnome-build-meta/-/raw/${gbm_sha}/patches/freedesktop-sdk/${encoded}" \
+            -o "$workdir/upstream/$name"
+    done < "$workdir/upstream-files"
+
+    if [ -d "$local_dir" ]; then
+        find "$local_dir" -maxdepth 1 -type f -printf '%f\n' | sort > "$workdir/local-files"
+    else
+        : > "$workdir/local-files"
+    fi
+
+    comm -23 "$workdir/upstream-files" "$workdir/local-files" > "$workdir/missing"
+    comm -13 "$workdir/upstream-files" "$workdir/local-files" > "$workdir/extra"
+    : > "$workdir/differing"
+    comm -12 "$workdir/upstream-files" "$workdir/local-files" | while IFS= read -r name; do
+        if ! cmp -s "$workdir/upstream/$name" "$local_dir/$name"; then
+            echo "$name" >> "$workdir/differing"
+        fi
+    done
+
+    status=0
+    if [ -s "$workdir/missing" ]; then
+        echo "ERROR: missing local patches from GBM patches/freedesktop-sdk at ${gbm_sha}:" >&2
+        sed 's/^/  /' "$workdir/missing" >&2
+        status=1
+    fi
+    if [ -s "$workdir/extra" ]; then
+        echo "ERROR: extra local patches not in GBM patches/freedesktop-sdk at ${gbm_sha}:" >&2
+        sed 's/^/  /' "$workdir/extra" >&2
+        status=1
+    fi
+    if [ -s "$workdir/differing" ]; then
+        echo "ERROR: differing patch contents versus GBM patches/freedesktop-sdk at ${gbm_sha}:" >&2
+        sed 's/^/  /' "$workdir/differing" >&2
+        status=1
+    fi
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+
+    count=$(wc -l < "$workdir/upstream-files" | tr -d ' ')
+    echo "OK: patches/freedesktop-sdk matches GBM ${gbm_sha} (${count} files)"
+
 # Warm up the shared BuildStream graph and variant-specific dependencies before
 # the full OCI build so the remote CAS gets seeded while the workflow remains
 # serial.
@@ -162,6 +235,153 @@ warmup variant="default":
         echo "warmup-tier${TIER}-complete target=${TARGET}" | tee -a "$MARKER_FILE"
         report_progress "tier ${TIER} (${TARGET})"
     done
+
+# Build one pull-only warmup shard. The workflow runs webkit and rest in
+# parallel, saves ~/.cache/buildstream with actions/cache, then restores that
+# local cache in serialized push jobs. Do not push from this recipe.
+[group('build')]
+warmup-shard shard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mkdir -p logs
+    MARKER_FILE="logs/warmup-shard-{{shard}}.marker"
+
+    if [ ! -f buildstream-ci.conf ]; then
+        echo "WARN: buildstream-ci.conf not found; skipping warmup shard" | tee -a "$MARKER_FILE"
+        exit 0
+    fi
+
+    case "{{shard}}" in
+        webkit)
+            # Both WebKit variants: webkitgtk-6.0 (GTK4) and webkit2gtk-4.1
+            # (GTK3 API). Each is a ~9400-step build; keeping them in one
+            # shard, built serially by the tier loop, stops them from
+            # co-scheduling and prevents the rest shard from hiding a second
+            # WebKit-sized build.
+            WARMUP_TARGETS=(
+                "gnome-build-meta.bst:sdk/webkitgtk-6.0.bst"
+                "gnome-build-meta.bst:sdk/webkit2gtk-4.1.bst"
+            )
+            FINAL_TARGET="gnome-build-meta.bst:sdk/webkitgtk-6.0.bst"
+            ;;
+        rest)
+            WARMUP_TARGETS=(
+                "elements/freedesktop-sdk.bst"
+                "elements/gnome-build-meta.bst"
+                "elements/bluefin/deps.bst"
+                "elements/bluefin-nvidia/deps.bst"
+            )
+            FINAL_TARGET="oci/bluefin.bst"
+            ;;
+        *)
+            echo "ERROR: unknown warmup shard '{{shard}}' (expected: webkit | rest)" >&2
+            exit 1
+            ;;
+    esac
+
+    : > "$MARKER_FILE"
+    echo "==> Warmup shard: {{shard}}" | tee -a "$MARKER_FILE"
+
+    report_progress() {
+        local label="$1"
+        local states total cached buildable waiting failed pct
+        states=$(BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+            just bst show --deps all --format '%{state}' "$FINAL_TARGET" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g') || {
+            echo "WARN: progress query failed after ${label}" | tee -a "$MARKER_FILE"
+            return 0
+        }
+        total=$(echo "$states" | grep -c . || true)
+        cached=$(echo "$states" | grep -cx 'cached' || true)
+        buildable=$(echo "$states" | grep -cx 'buildable' || true)
+        waiting=$(echo "$states" | grep -cx 'waiting' || true)
+        failed=$(echo "$states" | grep -cx 'failed' || true)
+        pct=$(( total > 0 ? cached * 100 / total : 0 ))
+        local line="==> Progress after ${label}: ${cached}/${total} cached (${pct}%) - ${buildable} buildable, ${waiting} waiting, ${failed} failed"
+        echo "$line" | tee -a "$MARKER_FILE"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "| ${label} | ${cached}/${total} | ${pct}% | ${buildable} | ${waiting} | ${failed} |" >> "$GITHUB_STEP_SUMMARY"
+        fi
+    }
+
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        {
+            echo "### Warmup shard progress ({{shard}} -> ${FINAL_TARGET})"
+            echo "| Stage | Cached | % | Buildable | Waiting | Failed |"
+            echo "|---|---|---|---|---|---|"
+        } >> "$GITHUB_STEP_SUMMARY"
+    fi
+
+    echo "==> Warmup shard resolve: {{shard}}" | tee -a "$MARKER_FILE"
+    BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+        just bst show --deps all --format '%{name}' "${WARMUP_TARGETS[0]}" 2>&1 | tee "logs/warmup-shard-{{shard}}-show.log"
+    report_progress "graph resolve"
+
+    for idx in "${!WARMUP_TARGETS[@]}"; do
+        TARGET="${WARMUP_TARGETS[$idx]}"
+        TIER=$((idx + 1))
+        echo "==> Warmup shard {{shard}} tier ${TIER}: build ${TARGET}" | tee -a "$MARKER_FILE"
+        BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf" \
+            just bst build "$TARGET" 2>&1 | tee "logs/warmup-shard-{{shard}}-tier${TIER}-build.log"
+        echo "warmup-shard-tier${TIER}-complete target=${TARGET}" | tee -a "$MARKER_FILE"
+        report_progress "tier ${TIER} (${TARGET})"
+    done
+
+# Push artifacts built by a warmup shard. This recipe assumes the shard's local
+# ~/.cache/buildstream was restored first; workflows run these jobs with
+# max-parallel: 1 so only one shard writes to the remote CAS at a time.
+[group('build')]
+warmup-shard-push shard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mkdir -p logs
+    MARKER_FILE="logs/warmup-shard-{{shard}}-push.marker"
+
+    if [ ! -f buildstream-push.conf ]; then
+        echo "WARN: buildstream-push.conf not found; skipping warmup shard push" | tee -a "$MARKER_FILE"
+        exit 0
+    fi
+
+    case "{{shard}}" in
+        webkit)
+            PUSH_TARGETS=(
+                "gnome-build-meta.bst:sdk/webkitgtk-6.0.bst"
+                "gnome-build-meta.bst:sdk/webkit2gtk-4.1.bst"
+            )
+            ;;
+        rest)
+            PUSH_TARGETS=(
+                "elements/freedesktop-sdk.bst"
+                "elements/gnome-build-meta.bst"
+                "elements/bluefin/deps.bst"
+                "elements/bluefin-nvidia/deps.bst"
+            )
+            ;;
+        *)
+            echo "ERROR: unknown warmup shard '{{shard}}' (expected: webkit | rest)" >&2
+            exit 1
+            ;;
+    esac
+
+    : > "$MARKER_FILE"
+    PUSH_LOG="logs/warmup-shard-{{shard}}-push.log"
+    echo "==> Push warmup shard: {{shard}}" | tee -a "$MARKER_FILE"
+    for TARGET in "${PUSH_TARGETS[@]}"; do
+        echo "==> Push warmup target ${TARGET}" | tee -a "$MARKER_FILE"
+        BST_FLAGS="-o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf" \
+            just bst artifact push --deps run "$TARGET" 2>&1 | tee -a "$PUSH_LOG"
+    done
+
+    # Guard against the silent no-op failure mode: bst exits 0 even when the
+    # local cache restored empty and nothing was transferred. Require evidence
+    # that at least one artifact was pushed or already present on the remote.
+    # (Message formats from buildstream/_artifactcache.py: "Pushed artifact",
+    # "Pushed data from artifact", "Remote (...) already has ... cached".)
+    if ! grep -qE "Pushed (data from )?artifact|already has (all data of )?artifact" "$PUSH_LOG"; then
+        echo "ERROR: push log shows zero pushed or remote-cached artifacts — local BST cache was likely empty" | tee -a "$MARKER_FILE" >&2
+        exit 1
+    fi
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.

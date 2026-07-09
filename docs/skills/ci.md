@@ -4,6 +4,7 @@ description: CI entry point for Dakota. Routes agents to the right CI skill fast
 metadata:
   context7-sources:
     - /websites/github_en_actions
+    - /actions/cache
     - /bootc-dev/bootc
     - /apache/buildstream
 ---
@@ -106,7 +107,7 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `build.yml` | `push: testing/next` (paths-ignore: docs/workflows/md), `merge_group`, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` | BST build → artifacts into remote CAS. Does NOT push to GHCR. `validate` job runs on `pull_request` only; `build` job runs on everything else. |
+| `build.yml` | `push: testing` for key-busting paths, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` or `merge_group` | Pull-only warmup shards → serialized CAS pushes → BST build → artifacts into remote CAS. Does NOT push to GHCR. |
 | `publish.yml` | `workflow_run` from `build.yml` (branches: testing, next, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
 | `execute-release.yml` | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch` | SHA freshness check (:testing vs :stable). If different: cosign verify → skopeo copy `:testing` → `:stable` → fast-forward main → create GitHub Release. Skips if equal. (Boot-check is in publish.yml before :testing; execute-release trusts the already-boot-checked image.) |
 | ~~`promote-testing-to-main.yml`~~ | DELETED | Was: `push: testing`, schedule Tue 04:00 UTC, manual. |
@@ -120,11 +121,11 @@ This is the fast path for stale-image complaints: the image date is usually wron
 |---|---|---|---|---|---|
 | `validate` | Yes | No | No | No | No |
 | `e2e` | Yes (change-detected) | No | No | Yes | No |
-| `build` | No | Yes (paths-ignore) | Yes | Yes | Daily 13:00 UTC |
+| `build` | No | testing only (key-busting paths) | No | Yes | Daily 13:00 UTC |
 | `execute-release` | No | No | No | Yes | Via workflow_run from publish |
-| Push to GHCR? | No | Via publish.yml | Via publish.yml | Via publish.yml | Via publish.yml |
+| Push to GHCR? | No | Via publish.yml | No | Via publish.yml | Via publish.yml |
 
-**push paths-ignore:** `.github/workflows/**`, `docs/**`, `**.md`, `AGENTS.md` — doc/workflow-only pushes do NOT trigger a build. This is intentional; it means a CI-only commit advancing the branch HEAD will leave no build artifact for that SHA.
+**push paths:** `build.yml` triggers on `testing` only when `elements/**`, `patches/**`, `project.conf`, or `include/**` changes. Doc/workflow-only pushes do NOT trigger a build. This is intentional; it means a CI-only commit advancing the branch HEAD will leave no build artifact for that SHA.
 
 **Branch → tag mapping** (verified from publish.yml source):
 - `testing` or `gh-readonly-queue/testing/*` → `:testing`
@@ -134,15 +135,21 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 **e2e change detection:** `e2e` uses a `should-run` job that diffs the PR branch against its base. It runs when `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf` change; otherwise the `e2e` job is skipped. Skipped satisfies the required status check.
 
-**Merge queue path:** `build` fires on `merge_group` — full OCI build, real CI gate before merge. PRs target `testing`; `next` retains its own merge queue.
+**Merge queue path:** `build` is intentionally excluded from `merge_group`; queued PRs rely on the required validation/e2e checks, and the post-merge push to `testing` starts the real BuildStream path when key-busting files changed.
 
 **Daily build schedule:** `build.yml` fires at 13:00 UTC daily (after `nightly-next-build` completes). This keeps CAS warm and ensures a fresh `:testing` tag each day even without a code push. `cache-warm.yml` was deleted — the daily build replaces it.
 
 **ARM build:** `build-aarch64.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch. This serializes ARM after x86 CAS writes complete, preventing contention. The previous Tuesday cron trigger was removed.
 
-**Cold-cache warmup:** `build.yml` now runs `just warmup <variant>` before the full `just bst build` phase. The warmup resolves the shared dependency graph, builds a small set of core elements, and pushes those artifacts into the remote CAS while still honoring the workflow's single-build-at-a-time rule. It is intentionally lightweight so a cold runner can seed the remote cache without turning into a second full build.
+**Sharded x86 warmup:** `build.yml` warms the x86 cache in two pull-only shards before the full OCI build. The `webkit` shard builds both WebKit variants serially — `gnome-build-meta.bst:sdk/webkitgtk-6.0.bst` then `gnome-build-meta.bst:sdk/webkit2gtk-4.1.bst` (junction-qualified paths must not carry an `elements/` prefix); each is a ~9400-step build, so serializing them inside one shard avoids co-scheduling two giants on one runner; the `rest` shard builds the existing tier targets (`freedesktop-sdk`, `gnome-build-meta`, default deps, and nvidia deps). Both use generated `buildstream-ci.conf` with `enable-push: 'false'` AND `enable-remote-execution: 'false'`. RE must be off: an RE build writes action inputs and results through the RE storage-service, making it a CAS writer even with push disabled — two parallel RE shards would violate the one-CAS-writer rule. Local (RE-off) builds are also the only way to guarantee the built artifacts land in the runner-local cache that the push jobs need.
 
-**Warmup tier progress reporting:** after tier 1 (graph resolve) and after every tier build+push, `just warmup` counts `bst show --deps all --format '%{state}'` for the full variant target and prints `==> Progress after <tier>: N/TOTAL cached (P%)`, also appended as a table row to `$GITHUB_STEP_SUMMARY`. Two gotchas baked into the implementation: `bst show` emits ANSI color codes even non-interactively (strip with `sed 's/\x1b\[[0-9;]*m//g'` before counting), and `%{state}` reflects the *runner-local* cache, so the percentage measures what this runner can stage without pulling — exactly the build-progress signal wanted at each seeding break.
+**Serialized warmup pushes:** Do not put a CAS-write concurrency group on the warmup build jobs. GitHub Actions job-level concurrency holds the group for the whole job, which would serialize the expensive pull-only builds. Instead, warmup build jobs tar `~/.cache/buildstream` (excluding `buildtrees` and `logs`) and upload it as a same-run workflow artifact (`retention-days: 1`, `if-no-files-found: error`, `compression-level: 0` since CAS blobs are already compressed); follow-up `warmup-push-shards` jobs download and untar it, then run `just warmup-shard-push <shard>` with `strategy.max-parallel: 1`. That serializes only the short `bst artifact push --deps run` phase while preserving build overlap. Do NOT use `actions/cache` as the build-to-push transport: the 10 GB repo LRU can evict entries, save failures are silent warnings, and `restore-keys` fallback can restore a stale cache — all of which degrade to "push found an empty/stale local cache" with green CI. The push recipe additionally greps its log for `Pushed artifact` / `already has artifact` evidence and fails on zero matches. Workflow-level `dakota-bst-build-global` concurrency prevents overlapping workflow runs from writing to the CAS at the same time; because GitHub keeps at most one pending run per group, rapid pushes to `testing` have last-write-wins semantics — only the newest queued run builds. Accepted by design; the daily schedule is the catch-up.
+
+**Warmup L1 cache:** x86 warmup build jobs additionally save `~/.cache/buildstream` with `actions/cache` (excluding `buildtrees` and `logs`) as a best-effort warm-start for FUTURE runs only — never as the intra-run transport. Keys include the branch, shard, key-input hash (`elements/freedesktop-sdk.bst`, `elements/gnome-build-meta.bst`, `patches/**`, `project.conf`, `include/**`), `github.run_id`, and `github.run_attempt`; restore keys fall back by the same hash and then by shard.
+
+**Warmup triggers:** `build.yml` keeps the daily 13:00 UTC schedule and manual dispatch, and also triggers on `push` to `testing` only for key-busting paths: `elements/**`, `patches/**`, `project.conf`, and `include/**`. Do not broaden this to docs-only paths; warmup should run when the BuildStream graph or patch inputs can invalidate remote-cache keys.
+
+**Warmup progress reporting:** `just warmup` and `just warmup-shard` count `bst show --deps all --format '%{state}'` and append cached/buildable/waiting/failed rows to `$GITHUB_STEP_SUMMARY`. Strip ANSI color codes before counting (`sed 's/\x1b\[[0-9;]*m//g'`). `%{state}` reflects the runner-local cache, so the percentage measures what this runner can stage without pulling.
 
 ## Remote Cache Architecture
 
