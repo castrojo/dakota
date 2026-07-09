@@ -150,7 +150,9 @@ jobs:
 
   warmup-push-shards:
     needs: [warmup-build-shards]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    # Warmup is best-effort: a failed or timed-out shard must not block the
+    # push of the surviving shard, and never the full build below.
+    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -216,7 +218,9 @@ jobs:
     # (also CAS writers) within this run. On warm runs the warmup phase is
     # pull-only and completes in minutes, so this gate is cheap.
     needs: [warmup-push-shards]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    # Warmup failures must never block the publish path; needs: is kept only
+    # to order this CAS writer after the warmup push phase within the run.
+    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 480
     # Variants build serially so the final OCI artifact pushes never overlap.
