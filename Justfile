@@ -166,11 +166,15 @@ warmup variant="default":
 
     case "{{variant}}" in
         default)
-            WARMUP_TARGETS=("freedesktop-sdk.bst" "gnome-build-meta.bst" "bluefin/deps.bst")
+            # Junction elements (freedesktop-sdk.bst, gnome-build-meta.bst) are
+            # NOT buildable bst targets — "Cannot build junction elements".
+            # Warm the layers via buildable aggregates instead; the gbm deps
+            # stack transitively covers the fdsdk graph.
+            WARMUP_TARGETS=("gnome-build-meta.bst:gnomeos-deps/deps.bst" "bluefin/deps.bst")
             FINAL_TARGET="oci/bluefin.bst"
             ;;
         nvidia)
-            WARMUP_TARGETS=("freedesktop-sdk.bst" "gnome-build-meta.bst" "bluefin-nvidia/deps.bst")
+            WARMUP_TARGETS=("gnome-build-meta.bst:gnomeos-deps/deps.bst" "bluefin-nvidia/deps.bst")
             FINAL_TARGET="oci/bluefin-nvidia.bst"
             ;;
         *)
@@ -266,9 +270,11 @@ warmup-shard shard:
             FINAL_TARGET="gnome-build-meta.bst:sdk/webkitgtk-6.0.bst"
             ;;
         rest)
+            # Junctions are not buildable targets ("Cannot build junction
+            # elements"); use buildable aggregates. gnomeos-deps/deps.bst
+            # transitively pulls the whole fdsdk + gbm platform graph.
             WARMUP_TARGETS=(
-                "freedesktop-sdk.bst"
-                "gnome-build-meta.bst"
+                "gnome-build-meta.bst:gnomeos-deps/deps.bst"
                 "bluefin/deps.bst"
                 "bluefin-nvidia/deps.bst"
             )
@@ -351,9 +357,10 @@ warmup-shard-push shard:
             )
             ;;
         rest)
+            # Must mirror the warmup-shard rest targets: junction elements
+            # have no artifacts to push.
             PUSH_TARGETS=(
-                "freedesktop-sdk.bst"
-                "gnome-build-meta.bst"
+                "gnome-build-meta.bst:gnomeos-deps/deps.bst"
                 "bluefin/deps.bst"
                 "bluefin-nvidia/deps.bst"
             )
