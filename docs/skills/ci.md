@@ -301,6 +301,10 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Entries before 2026-06-23 may reference workflows that have since been deleted (`promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`). Those workflows were deleted in the OCI-native redesign (issue 1073). Do not recreate them.
 
+### Shard timeout must be step-level or all compiled work is lost (2026-07-09)
+
+`jobs.<id>.timeout-minutes` cancels the whole job: remaining steps are skipped and the actions/cache post-save does not run, so a WebKit shard that times out after ~3h of compiling discards everything — the exact non-monotonic failure the shard design exists to prevent. The documented pattern (GH Actions workflow-syntax + expressions docs) is a step-level `timeout-minutes` on the build step (only the step is terminated; the job continues) with `if: ${{ !cancelled() }}` on the pack/upload handoff steps so partial progress is always packed and pushed. Budget: 150m build step + 30m handoff inside the 180m job backstop. GH docs recommend `!cancelled()` over `always()` for anything that could itself hang.
+
 ### Junction elements are not buildable or pushable bst targets (2026-07-09)
 
 `bst build freedesktop-sdk.bst` fails with `Cannot build junction elements` — junctions define subprojects, they produce no artifact. The rest warmup shard shipped with `freedesktop-sdk.bst` and `gnome-build-meta.bst` as tier targets and failed on its first real run (run 29008317286). Warm junction-provided layers through buildable aggregates instead: `gnome-build-meta.bst:gnomeos-deps/deps.bst` transitively covers the entire fdsdk + gbm platform graph, then `bluefin/deps.bst` and `bluefin-nvidia/deps.bst` add the dakota layer. The same applies to `bst artifact push` target lists — keep `warmup-shard` and `warmup-shard-push` target arrays mirrored. Verify any new tier target with `just bst show --deps none <target>` before pushing.

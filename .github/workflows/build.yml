@@ -122,15 +122,27 @@ jobs:
           enable-remote-execution: 'false'
           enable-push: 'false'
 
+      # Step-level timeout, NOT job-level: when a JOB times out, remaining
+      # steps are skipped and actions/cache post-save does not run, so hours
+      # of compiled artifacts are discarded — the exact non-monotonic failure
+      # this shard design exists to prevent. A STEP timeout terminates only
+      # the build step; the handoff steps below still run (guarded with
+      # !cancelled()) and push whatever was built. 150m build + 30m handoff
+      # fits the 180m job budget.
       - name: Build warmup shard
+        timeout-minutes: 150
         run: just warmup-shard ${{ matrix.shard }}
 
       # Same-run handoff to the serialized push jobs. Buildtrees and logs are
       # excluded; CAS blobs are already compressed, so compression-level: 0.
+      # !cancelled(): must run even when the build step failed or timed out,
+      # so partial progress is preserved (monotonic seeding).
       - name: Pack BST cache for push handoff
+        if: ${{ !cancelled() }}
         run: tar -C "$HOME" --exclude=.cache/buildstream/logs --exclude=.cache/buildstream/buildtrees -cf "$RUNNER_TEMP/bst-cache-shard.tar" .cache/buildstream
 
       - name: Upload BST cache transport artifact
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bst-warm-transport-${{ matrix.shard }}-${{ github.run_id }}
