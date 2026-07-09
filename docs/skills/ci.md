@@ -301,6 +301,10 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Entries before 2026-06-23 may reference workflows that have since been deleted (`promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`). Those workflows were deleted in the OCI-native redesign (issue 1073). Do not recreate them.
 
+### skip-warmup dispatch input for publish-critical runs (2026-07-09)
+
+During the 11-day `:testing` outage, the publish path sat behind a warmup shard that was known-dead for 3 hours (junction-target bug + pre-fix job-level timeout discarding its work) because the `build` job is ordered after `warmup-push-shards`. For outage recovery, dispatch with `skip-warmup: true` (`gh workflow run build.yml --ref testing -f skip-warmup=true`) — both warmup jobs are skipped and `build` starts immediately (`if: (!cancelled())` treats skipped needs as passable). Use bare `inputs.skip-warmup` in `if:` conditions, never `${{ }}`-wrapped (startup_failure on non-dispatch triggers, see pattern 15b). Default false: scheduled/push runs keep seeding the CAS.
+
 ### Shard timeout must be step-level or all compiled work is lost (2026-07-09)
 
 `jobs.<id>.timeout-minutes` cancels the whole job: remaining steps are skipped and the actions/cache post-save does not run, so a WebKit shard that times out after ~3h of compiling discards everything — the exact non-monotonic failure the shard design exists to prevent. The documented pattern (GH Actions workflow-syntax + expressions docs) is a step-level `timeout-minutes` on the build step (only the step is terminated; the job continues) with `if: ${{ !cancelled() }}` on the pack/upload handoff steps so partial progress is always packed and pushed. Budget: 150m build step + 30m handoff inside the 180m job backstop. GH docs recommend `!cancelled()` over `always()` for anything that could itself hang.

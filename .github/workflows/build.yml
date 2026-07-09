@@ -19,6 +19,11 @@ on:
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
     # require gbm.gnome.org to have built the new ref first — dispatch too early
     # and you get a cold build that times out.
+    inputs:
+      skip-warmup:
+        description: 'Skip warmup shards and go straight to the build job (publish-critical runs)'
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -78,7 +83,9 @@ jobs:
   # actions/cache is used only as a best-effort L1 warm-start for future runs.
   warmup-build-shards:
     needs: [verify-default-branch]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    # Bare inputs.skip-warmup (no ${{ }}): inputs context is absent on
+    # push/schedule and the bare form evaluates false-y safely there.
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && !inputs.skip-warmup
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
@@ -164,7 +171,7 @@ jobs:
     needs: [warmup-build-shards]
     # Warmup is best-effort: a failed or timed-out shard must not block the
     # push of the surviving shard, and never the full build below.
-    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && !inputs.skip-warmup
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
