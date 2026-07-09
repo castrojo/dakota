@@ -2439,3 +2439,27 @@ per-client quota exhaustion (2026-06-09).
 **Fallback if 150 GB is still not enough:** phase the build (`bst build` a subset,
 `bst artifact push`, wipe local CAS, continue) — later phases re-pull only the runtime
 deps of remaining elements.
+
+### max-jobs: 1 in the RE config was the real 11-day build-time killer (2026-07-09)
+
+The remote-execution BST config carried `build: max-jobs: 1`, added to prevent GCC
+bootstrap OOM segfaults on gimple-match.cc. That meant EVERY remote build action ran
+`make -j1` / `ninja -j1` — one core of the 16c/32t 7950X3D builder. Small elements
+hide it; llvm and the two WebKit variants become 10-30h single-core compiles that
+mathematically bust the 480m job budget. This, not CAS behavior, is why semi-cold
+builds ran 6h+ and timed out repeatedly.
+
+**Why raising it is safe:**
+- max-jobs does not affect BST cache keys (`buildelement.py`: "normally automatically
+  resolved and does not affect the cache key") — the warm CAS is fully preserved.
+  Only `notparallel` elements pin to 1, and that IS keyed separately.
+- The GCC bootstrap OOM is obsolete: the -O1 patch fixed the ICE, and gcc/bootstrap
+  artifacts are already cached in the remote CAS.
+- 128 GB RAM on the builder handles two concurrent -j16 actions.
+
+**Setting:** `max-jobs: 16` with `builders: 2` — two concurrent actions saturate
+all 32 threads. If a genuinely memory-hungry element OOMs at -j16, use an
+element-scoped fix (variables in a repo patch), never a global -j1.
+
+**Changing max-jobs mid-outage costs nothing:** already-built elements pull from the
+artifact cache by BST cache key; only not-yet-built elements get new RE action digests.
