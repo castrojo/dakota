@@ -244,3 +244,36 @@ The correct approach is to match the upstream GNOME OS / `gnome-build-meta` / `f
 - Keep the patch queue clean and avoid introducing compiler-specific hacks.
 - Never compile our own GCC under any circumstance.
 
+### Void-override pattern to remove an unwanted junction element (2026-07-08)
+
+To remove a junction-provided component entirely (not patch it), override it to an empty
+`kind: stack` element — the same pattern gnome-build-meta uses for `void/zenity.bst`.
+Dakota provides `elements/bluefin/void.bst` for this.
+
+```yaml
+# elements/freedesktop-sdk.bst
+config:
+  overrides:
+    components/frei0r.bst: bluefin/void.bst
+```
+
+Case study — frei0r removal:
+
+- frei0r v3.1.3 fails to compile under GCC 15 (SSE intrinsic type errors,
+  dyne/frei0r issues 228 and 239), and no upstream artifact cache carried
+  Dakota's cache key for it (our junction overrides shift the key).
+- `gstreamer-plugins-bad` lists frei0r as a dep and builds with
+  `-Dfrei0r=enabled`, but its frei0r wrapper bundles its own `frei0r.h`
+  (`gst/frei0r/frei0r.h`) — it builds fine with frei0r voided and simply
+  dlopens nothing at runtime when no frei0r plugins are on disk.
+- Cache impact check before committing: if everything downstream of the
+  element is already `waiting` (uncached), the void override is cache-neutral.
+  Verify with `just bst show oci/bluefin.bst` state counts before/after.
+
+Also note: a failed build gets cached as a failed artifact. `bst show` reports
+the element as `failed` and retries exit immediately. Clear it with
+`just bst artifact delete <element>` before rebuilding (see debugging.md).
+
+When passing `--format` strings to `just bst show`, avoid spaces — the Justfile
+recipe word-splits arguments. Use `%{name}--%{state}` style separators.
+
