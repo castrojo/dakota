@@ -166,11 +166,11 @@ warmup variant="default":
 
     case "{{variant}}" in
         default)
-            WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin/deps.bst")
+            WARMUP_TARGETS=("freedesktop-sdk.bst" "gnome-build-meta.bst" "bluefin/deps.bst")
             FINAL_TARGET="oci/bluefin.bst"
             ;;
         nvidia)
-            WARMUP_TARGETS=("elements/freedesktop-sdk.bst" "elements/gnome-build-meta.bst" "elements/bluefin-nvidia/deps.bst")
+            WARMUP_TARGETS=("freedesktop-sdk.bst" "gnome-build-meta.bst" "bluefin-nvidia/deps.bst")
             FINAL_TARGET="oci/bluefin-nvidia.bst"
             ;;
         *)
@@ -267,10 +267,10 @@ warmup-shard shard:
             ;;
         rest)
             WARMUP_TARGETS=(
-                "elements/freedesktop-sdk.bst"
-                "elements/gnome-build-meta.bst"
-                "elements/bluefin/deps.bst"
-                "elements/bluefin-nvidia/deps.bst"
+                "freedesktop-sdk.bst"
+                "gnome-build-meta.bst"
+                "bluefin/deps.bst"
+                "bluefin-nvidia/deps.bst"
             )
             FINAL_TARGET="oci/bluefin.bst"
             ;;
@@ -352,10 +352,10 @@ warmup-shard-push shard:
             ;;
         rest)
             PUSH_TARGETS=(
-                "elements/freedesktop-sdk.bst"
-                "elements/gnome-build-meta.bst"
-                "elements/bluefin/deps.bst"
-                "elements/bluefin-nvidia/deps.bst"
+                "freedesktop-sdk.bst"
+                "gnome-build-meta.bst"
+                "bluefin/deps.bst"
+                "bluefin-nvidia/deps.bst"
             )
             ;;
         *)

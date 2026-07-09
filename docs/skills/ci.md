@@ -313,6 +313,10 @@ The pre-flight rule (cancel all active runs before any CI action) has a failure 
 
 Downstream jobs (`warmup-push-shards`, `build`) use `if: (!cancelled()) && ...` so a timed-out or failed warmup shard never blocks the full build. `needs:` is retained purely to order CAS writers within the run. Without this, a single 180-minute shard timeout silently converts into a full missed publish.
 
+### bst target paths never carry the `elements/` prefix in CI (2026-07-09)
+
+Inside the bst2 container the element path is `/src/elements`, and `bst` rejects targets written as `elements/foo.bst` with `Could not find element ... Did you mean 'foo.bst'?`. Locally the prefixed form can appear to work, which makes this a CI-only failure. Always write targets relative to the element path (`freedesktop-sdk.bst`, `bluefin/deps.bst`) and junction-qualified targets as `gnome-build-meta.bst:sdk/webkitgtk-6.0.bst`. Verify any new Justfile bst invocation with `just bst show --deps none <target>` before pushing.
+
 ### The graph contains two WebKit-sized elements (2026-07-09)
 
 `sdk/webkitgtk-6.0.bst` (GTK4) and `sdk/webkit2gtk-4.1.bst` (GTK3 API) are both in the default image graph, each ~9400 build steps. The `webkit` warmup shard builds both, serially, so the `rest` shard never hides a second WebKit-sized build and runners never co-schedule two giants. When estimating build times or designing shards, count both.
