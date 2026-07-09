@@ -177,12 +177,23 @@ wall time — they more than double it and risk 6-hour timeouts with
 
 **One build. Field clear first. No exceptions.**
 
+**Pre-flight is atomic:** cancel → verify clear → push/dispatch must complete in one
+uninterrupted sequence. Cancelling the active build and then not pushing the
+replacement is the worst outcome — do not start cancelling unless you will finish.
+
+### 10. Publishing is the deliverable — never gate a push on a local full-image build
+
+Targeted validation is sufficient push evidence; CI performs full-image verification
+itself. A stale `:testing` outage was extended a full day by an unnecessary 8-hour
+local verification build. Details: `docs/skills/ci.md` "Publishing is the deliverable"
+lesson (2026-07-09).
+
 ## CI overview
 
 - **Schedule:** nightly at 13:00 UTC (after gnome-build-meta nightly ~08:00 UTC finish)
 - **Publish triggers:** `merge_group`, `schedule`, `workflow_dispatch` (not `pull_request`)
 - **Remote cache:** `cache.projectbluefin.io:11002` (mTLS — `CASD_CLIENT_CERT` + `CASD_CLIENT_KEY`)
-- **Image:** `ghcr.io/projectbluefin/dakota:{testing,latest,stable}` and `:<sha>`
+- **Image:** `ghcr.io/projectbluefin/dakota:{testing,stable,next,btw}` and `:<sha>` (`:latest` is never published)
 
 ## Key architecture
 

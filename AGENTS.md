@@ -144,6 +144,8 @@ Examples of what "check the docs" means in practice:
 
 **Never claim a task complete without verifying.** "I've updated the file" is not done. Run the checks. Read the output.
 
+**Publishing is the deliverable — do not over-verify.** When `:testing` is stale or CI is broken, pushing the validated fix is the primary task. Targeted validation (the failing element builds past its failure point, `just validate`, `just patch-drift-check`) is sufficient push evidence; a full local image build is never a push prerequisite — CI performs that verification itself. See `docs/skills/ci.md` "Publishing is the deliverable" lesson.
+
 **Pre-commit guard:** `no-floating-action-tags` blocks third-party `@main`/`@v*` floating action tags at commit time. `projectbluefin/actions/` refs (`@v1`) are intentional managed tags and are exempted.
 
 **Justfile integrity:** All maintenance tasks must be `just` recipes. No loose shell commands. If a task isn't covered by an existing recipe, add one alongside your change.

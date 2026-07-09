@@ -142,6 +142,10 @@ Do not open the sandbox before you even know whether the graph parses.
 
 ## Lessons Learned
 
+### Local BST co-schedules giant elements — cap builders for interactive builds (2026-07-09)
+
+The default image graph contains two WebKit-sized elements (`sdk/webkitgtk-6.0.bst` and `sdk/webkit2gtk-4.1.bst`, ~9400 steps each). BuildStream's local scheduler will happily run both concurrently plus other elements, oversubscribing the machine (observed: load 22-28 on 16 threads, 22/31 GB RAM) and roughly doubling each element's wall time versus serial execution. For local builds where wall time to first result matters, cap concurrent build jobs (`builders: 2` in the BST user config) so giants do not co-schedule. Also make ETAs assuming giants share the machine, not that each gets it exclusively.
+
 ### `Error loading project` before any build step = YAML error, not a build failure (2026-06-07)
 
 When BST exits with `Error loading project` before any `[build]` output appears, the element has a YAML/option error — it never even started building. Run `just bst show bluefin/<name>.bst` (no build) to pinpoint the exact line. Common causes: hyphenated option names, wrong option type, missing alias, bad indentation. Do not reach for `just bst shell` until `bst show` exits cleanly.
@@ -180,4 +184,3 @@ The more reliable lab fallback is to keep the build local to the cluster runner,
 Carrying custom local patches or build flag overrides in the `freedesktop-sdk` junction (such as hacking Pipewire versions or adding local GCC 15 compiler workarounds) alters the sub-project config and invalidates the cache keys for every single element in that junction. This forces the runners to build the entire base OS—including compiler toolchains, glibc, and systemd—from source, causing extremely long compile times, compiler crashes, and OOMs.
 
 The correct fix is to align Dakota with the upstream GNOME OS / `gnome-build-meta` / `freedesktop-sdk` ref that already works, then keep the patch queue clean. Do not compile our own GCC, ship a local GCC bootstrap toolchain, or add compiler-specific hacks under any circumstance. If an upstream-aligned ref is available, use that path first; only use a local override when there is no upstream path and it has a documented exit condition.
-

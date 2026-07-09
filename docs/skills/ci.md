@@ -301,6 +301,22 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Entries before 2026-06-23 may reference workflows that have since been deleted (`promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`). Those workflows were deleted in the OCI-native redesign (issue 1073). Do not recreate them.
 
+### Publishing is the deliverable — local full-image builds are never a push gate (2026-07-09)
+
+An agent session extended a 10-day `:testing` outage to 11 days by gating the push of already-validated fixes on a full local image build (8+ hours, two WebKit variants). The fixes had sufficient targeted evidence hours earlier: the previously-failing element (mutter) compiled past its failure point, the graph was frei0r-free, `just patch-drift-check` and actionlint were green, and cache realignment was confirmed by the cached-element count jump. That is what "test evidence before push" means — targeted validation of the changed behavior. CI performs the full-image verification itself; duplicating it locally before pushing adds nothing and delays the publish by the length of the build. When `:testing` is stale, treat pushing the fix as the primary deliverable and local work as evidence-gathering only.
+
+### CI pre-flight cancel-then-push is one atomic sequence (2026-07-09)
+
+The pre-flight rule (cancel all active runs before any CI action) has a failure mode: cancelling the in-flight daily build and then NOT completing the push — for example because the turn ended while a cancellation was still draining. Net effect is strictly worse than doing nothing: the existing build dies and no replacement is queued. Cancel → verify field clear → push/dispatch must complete in one uninterrupted sequence. If you cannot finish the push in the same working block, do not start cancelling.
+
+### Warmup shards must be best-effort; hard needs: gates kill the publish path (2026-07-09)
+
+Downstream jobs (`warmup-push-shards`, `build`) use `if: (!cancelled()) && ...` so a timed-out or failed warmup shard never blocks the full build. `needs:` is retained purely to order CAS writers within the run. Without this, a single 180-minute shard timeout silently converts into a full missed publish.
+
+### The graph contains two WebKit-sized elements (2026-07-09)
+
+`sdk/webkitgtk-6.0.bst` (GTK4) and `sdk/webkit2gtk-4.1.bst` (GTK3 API) are both in the default image graph, each ~9400 build steps. The `webkit` warmup shard builds both, serially, so the `rest` shard never hides a second WebKit-sized build and runners never co-schedule two giants. When estimating build times or designing shards, count both.
+
 ### Remote BST builds can exceed the 6-hour GHA budget on cold schedules (2026-07-06)
 
 A cold `build.yml` run can keep `Build OCI image with BuildStream` alive past the old 360-minute budget without surfacing a build-element failure. In that case the workflow timeout budget itself is the constraint, not a poisoned CAS blob or an element syntax error. For remote BST builds, give the job and the build step 480 minutes of headroom and inspect the uploaded logs if the run still stalls after that. This was confirmed by the 2026-07-06 run that reached roughly 6 hours while the element graph was still advancing.
