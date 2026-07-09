@@ -44,16 +44,18 @@ runs:
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
-          # 16 = physical cores on the RE builder (7950X3D, 16c/32t, 128 GB).
-          # With builders: 2, two concurrent actions saturate all 32 threads.
           # max-jobs does NOT affect cache keys (buildelement.py: "normally
           # automatically resolved and does not affect the cache key"), so
-          # raising it preserves the warm CAS. The old max-jobs: 1 (GCC
-          # bootstrap OOM on gimple-match.cc) is obsolete: the -O1 patch
-          # fixed the ICE and gcc is already cached; -j1 made every big
-          # element (llvm, WebKit x2) a 10-30h single-core compile that
-          # mathematically busted the 480m budget.
-          max-jobs: 16
+          # tuning it preserves the warm CAS. History: max-jobs: 1 made every
+          # big element (llvm, WebKit x2) a 10-30h single-core compile that
+          # mathematically busted the 480m budget (11-day outage). The first
+          # attempt at 16 coincided with a server-wide outage (RST_STREAM
+          # INTERNAL + FetchBlob DEADLINE_EXCEEDED on all pulls, 23:20 UTC
+          # 2026-07-09) — likely OOM: gimple-match.cc compiles eat 4-6 GB
+          # each, and 16 in parallel plus casd cache pressure exceeds the
+          # 128 GB builder. 2 builders x -j8 is a safe 8x speedup over -j1
+          # while staying well under the RAM ceiling.
+          max-jobs: 8
         BSTCONFBUILD
           else
             cat >> buildstream-ci.conf <<'BSTCONFBUILD'

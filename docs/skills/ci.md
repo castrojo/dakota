@@ -2463,3 +2463,28 @@ element-scoped fix (variables in a repo patch), never a global -j1.
 
 **Changing max-jobs mid-outage costs nothing:** already-built elements pull from the
 artifact cache by BST cache key; only not-yet-built elements get new RE action digests.
+
+### max-jobs: 16 crashed the RE server — 8 is the ceiling (2026-07-09)
+
+The first run at `max-jobs: 16` died at ~23:20 UTC: gcc-stage1.bst, 28 minutes into
+its remote action, got `INTERNAL: Stream removed (Received RST_STREAM with error
+code 2)`, and simultaneously every artifact pull started failing with `FetchBlob
+failed with status DEADLINE_EXCEEDED`. The whole CAS/RE endpoint at
+cache.projectbluefin.io:11002 stopped serving mid-run, then recovered on its own
+(TLS handshake succeeded again minutes after the run failed).
+
+**Diagnosis:** likely server-side OOM. gimple-match.cc and friends eat 4-6 GB per
+compiler process; 16 parallel jobs plus buildbox-casd's own cache pressure exceeds
+the 128 GB builder, the worker (or the whole host) OOMs, and every open gRPC stream
+gets RST_STREAM'd. From the client all you see is one build failure plus mass
+DEADLINE_EXCEEDED on unrelated pulls — the correlated timing is the tell.
+
+**Signature to recognize:** one RE action fails with `Stream removed / RST_STREAM
+error code 2` AND pulls fail en masse with `FetchBlob ... DEADLINE_EXCEEDED` at the
+same timestamp = server-side crash/restart, not a client or network problem. Probe
+recovery with `echo | openssl s_client -connect cache.projectbluefin.io:11002`
+(no SSH access to the server exists from CI or dev machines).
+
+**Setting:** `max-jobs: 8` with `builders: 2`. Still 8x the old -j1 throughput,
+peak compile RAM ~2x8x6 GB = ~96 GB worst case, under the ceiling. Do not raise
+back to 16 without server-side memory monitoring in place.
