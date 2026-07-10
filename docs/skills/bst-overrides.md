@@ -283,3 +283,10 @@ the element as `failed` and retries exit immediately. Clear it with
 
 When passing `--format` strings to `just bst show`, avoid spaces — the Justfile
 recipe word-splits arguments. Use `%{name}--%{state}` style separators.
+
+### Local patch queues on junctions completely invalidate upstream cache reuse (2026-07-10)
+
+Applying any local patch queue (`patch_queue` source) to a junction (like `gnome-build-meta.bst` or `freedesktop-sdk.bst`) modifies the junction's cryptographic source hash and cache key. Because BuildStream recursively derives downstream element keys from their junction's key, this downstream-only change invalidates the entire imported project graph.
+
+- **Consequence:** Carrying local patches (like `disable-lorry-mirrors.patch`) on a junction silently forces local compiles for massive components (like WebKit) by preventing cache reuse against the official public upstream cache (`gbm.gnome.org:11003`).
+- **Fix:** Keep junctions 100% clean of downstream patch queues. If a patch is required, submit it upstream first or bump the junction ref. Removing the patch queue on `gnome-build-meta` immediately restored 1053 out of 1090 cached elements (96% cache hit rate).
