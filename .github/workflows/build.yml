@@ -432,20 +432,46 @@ jobs:
           # dropped streams) fail the session instead of hanging; a re-run
           # resumes from the warm CAS in ~25 min. Only infra signatures are
           # retried — genuine build failures exit immediately.
+          #
+          # Stall watchdog: some RE flaps black-hole the client without any
+          # gRPC error surfacing (observed 2026-07-10: full buildbarn pod
+          # restart -> bst silent forever, NOT_FOUND hotfix never fired).
+          # bst --no-interactive only prints on task events; the longest
+          # observed single action is ~37 min (gcc-stage1), so 65 min of
+          # total output silence means a dead client. The watchdog kills the
+          # named bst container, which fails the pipe and trips the retry.
           set -o pipefail
           attempt=1
           max_attempts=3
+          base_extra="${BST_PODMAN_EXTRA_ARGS:-}"
+          stall_secs=3900
           while :; do
             rc=0
-            just bst build ${{ matrix.element }} 2>&1 \
-              | tee /tmp/bst-build-out.txt \
+            : > /tmp/bst-build-out.txt
+            cname="bst-build-${attempt}"
+            (
+              while :; do
+                sleep 120
+                mt=$(stat -c %Y /tmp/bst-build-out.txt 2>/dev/null || echo 0)
+                if [ $(( $(date +%s) - mt )) -ge "$stall_secs" ]; then
+                  echo "STALL_WATCHDOG: no bst output for ${stall_secs}s — killing ${cname}" >> /tmp/bst-build-out.txt
+                  podman kill "${cname}" >/dev/null 2>&1 || true
+                  exit 0
+                fi
+              done
+            ) &
+            wd=$!
+            BST_PODMAN_EXTRA_ARGS="${base_extra} --name ${cname}" \
+              just bst build ${{ matrix.element }} 2>&1 \
+              | tee -a /tmp/bst-build-out.txt \
               | python3 files/scripts/bst-progress.py || rc=$?
+            kill "$wd" 2>/dev/null || true
             [ "$rc" -eq 0 ] && break
             if [ "$attempt" -ge "$max_attempts" ]; then
               echo "::error::bst build failed after ${attempt} attempts (rc=${rc})"
               exit "$rc"
             fi
-            if grep -qE "Operation with name .* not found|Failed contacting remote execution server|Stream removed|DEADLINE_EXCEEDED|Failed to contact remote execution endpoint" /tmp/bst-build-out.txt; then
+            if grep -qE "STALL_WATCHDOG|Operation with name .* not found|Failed contacting remote execution server|Stream removed|DEADLINE_EXCEEDED|Failed to contact remote execution endpoint" /tmp/bst-build-out.txt; then
               attempt=$((attempt + 1))
               echo "::warning::RE infrastructure failure on attempt $((attempt - 1)) — retrying (warm cache resumes), attempt ${attempt}/${max_attempts}"
             else

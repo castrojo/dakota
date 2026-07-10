@@ -2549,3 +2549,25 @@ GitHub-side fix (no cluster dependency), in build.yml:
 Drop the hotfix when upstream BST treats lost operations as fatal (check the
 fatal tuple in the image's `_sandboxremote.py`; the step then logs "already
 handles NOT_FOUND upstream").
+
+### Stall watchdog: some RE flaps black-hole bst with no error at all (2026-07-10)
+
+The NOT_FOUND hotfix (above) only helps when the server *answers* with an
+error. Observed on run 29093568343: a full buildbarn pod-restart wave
+(frontend + scheduler + storage + workers all restarted at once) left the bst
+client silent forever — no NOT_FOUND, no stream error, nothing. The gRPC
+stream is simply black-holed and bst waits on it indefinitely.
+
+Fix in build.yml build step: an output-stall watchdog subshell. Every attempt
+runs the bst container with a known name (`--name bst-build-N` via
+`BST_PODMAN_EXTRA_ARGS`); a background loop checks the mtime of
+/tmp/bst-build-out.txt every 2 min and, after 65 min (3900 s) of total output
+silence, writes a `STALL_WATCHDOG` marker into the file and `podman kill`s
+the container. The killed pipe returns nonzero, the retry loop matches
+STALL_WATCHDOG as an infra signature, and the next attempt resumes from the
+warm CAS.
+
+Threshold rationale: `bst --no-interactive` prints on task start/end events;
+with multiple parallel builders the longest observed silent gap is well under
+the ~37 min gcc-stage1 build. 65 min of *total* silence across all builders
+means a dead client, not a slow compile. Do not lower this below ~45 min.
