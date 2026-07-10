@@ -18,6 +18,15 @@ NO LOCAL JUNCTION PATCH QUEUES
 
 All patches previously applied to freedesktop-sdk or gnome-build-meta junctions via patch_queue source blocks have been completely removed. Dakota's build must follow upstream junctions directly.
 
+## ⚠️ CRITICAL WARNING: PATCHES DESTROY UPSTREAM CACHE REUSE
+
+Applying any patch or patch queue (`patch_queue` source) to a junction (`gnome-build-meta.bst` or `freedesktop-sdk.bst`):
+1. **Recalculates downstream keys:** BuildStream recursively derives all downstream element cache keys from the junction's cryptographic hash.
+2. **Busts cache hits:** Any patch completely invalidates the cache keys for every single element imported from that junction, making it impossible to pull from upstream public caches (like `gbm.gnome.org:11003`).
+3. **Forces unfeasible compiles:** This silently forces Dakota to compile massive components (such as **WebKit**, ~9,400 steps each, taking hours) from scratch.
+
+**Rule:** Junctions must remain 100% clean of downstream patch queues. If a patch is needed, it must be submitted upstream first. Never add local patch queues to junctions unless willing to pay the cost of hours-long WebKit cold-builds.
+
 ## Reasons for This Policy
 
 1. **Maintenance Overhead:** Keeping downstream patches rebased and aligned with moving upstream junction refs is a heavy source of technical debt and causes frequent CI validation failures.

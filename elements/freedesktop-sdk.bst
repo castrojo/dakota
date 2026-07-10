@@ -1,3 +1,8 @@
+# ⚠️ WARNING: DO NOT ADD LOCAL PATCHES OR PATCH QUEUES TO THIS JUNCTION unless they
+# stay 100% byte-identical to those pinned inside gnome-build-meta.
+# Any local drift or unaligned patches to freedesktop-sdk invalidates cache keys for
+# ALL downstream elements (including WebKit), destroying cache reuse from gbm.gnome.org:11003.
+
 kind: junction
 
 sources:

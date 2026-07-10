@@ -1,3 +1,9 @@
+# ⚠️ WARNING: DO NOT ADD LOCAL PATCHES OR PATCH QUEUES TO THIS JUNCTION.
+# Applying any patch to this junction alters its source hash and invalidates
+# the cache keys for ALL downstream elements imported from it (including WebKit).
+# This completely destroys cache reuse against gbm.gnome.org:11003 and forces
+# hours of compile time from scratch. Keep this junction 100% clean of patches.
+
 kind: junction
 
 sources:
