@@ -361,6 +361,42 @@ jobs:
       # bst2 container. CI-specific flags (--no-interactive, --config)
       # are injected via BST_FLAGS env var.
 
+      # ── BST RE hotfix: fail fast on operations lost by the RE scheduler ──
+      # buildbarn's scheduler queue is in-memory: if the scheduler restarts
+      # while an action runs, WaitExecution returns NOT_FOUND for the lost
+      # operation (bb-remote-execution in_memory_build_queue.go: "Operation
+      # with name %#v not found"). BST's _sandboxremote.py does not treat
+      # NOT_FOUND as fatal, so it silently retries forever — the client hangs
+      # on "Waiting for the remote build to complete" until the 480m job
+      # timeout. Patch the image copy of _sandboxremote.py to make NOT_FOUND
+      # fatal; combined with the retry loop in the build step this makes the
+      # job self-heal from RE infrastructure flaps.
+      - name: Hotfix BST remote-execution NOT_FOUND hang
+        run: |
+          set -euo pipefail
+          IMG=$(just --evaluate bst2_image)
+          podman pull -q "$IMG"
+          TARGET=$(podman run --rm "$IMG" python3 -c \
+            'import buildstream.sandbox._sandboxremote as m; print(m.__file__)')
+          podman run --rm "$IMG" cat "$TARGET" > /tmp/bst_sandboxremote.py
+          python3 - <<'EOF'
+          import re, sys
+          path = "/tmp/bst_sandboxremote.py"
+          src = open(path).read()
+          # NOT_FOUND appears elsewhere (action-cache miss handling); check
+          # specifically for it inside the fatal-code tuple after DEADLINE_EXCEEDED.
+          if re.search(r"DEADLINE_EXCEEDED,\s*grpc\.StatusCode\.NOT_FOUND,", src):
+              print("already handles NOT_FOUND upstream — no patch needed")
+              sys.exit(0)
+          pattern = r"(\n(\s*)grpc\.StatusCode\.DEADLINE_EXCEEDED,)"
+          new, n = re.subn(pattern, r"\1\n\2grpc.StatusCode.NOT_FOUND,", src, count=1)
+          if n != 1:
+              sys.exit("fatal-code tuple not found in _sandboxremote.py — BST changed, update this step")
+          open(path, "w").write(new)
+          print("patched: NOT_FOUND added to fatal RE status codes")
+          EOF
+          echo "BST_PODMAN_EXTRA_ARGS=-v /tmp/bst_sandboxremote.py:${TARGET}:ro" >> "$GITHUB_ENV"
+
       # Count the full element graph so the progress script can show %.
       # bst show only reads element YAML + fetches junction refs — no CAS
       # traffic, typically <60s. Runs after Generate BuildStream CI config
@@ -390,10 +426,33 @@ jobs:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
           ELEMENT_TOTAL: ${{ steps.count.outputs.total }}
         run: |
-          # pipefail: propagate non-zero exit from `just bst build` through the pipe
+          # pipefail: propagate non-zero exit from `just bst build` through the pipe.
+          # Retry loop: RE infrastructure flaps (scheduler restart loses the
+          # in-memory queue -> NOT_FOUND via the hotfix above, node crashes,
+          # dropped streams) fail the session instead of hanging; a re-run
+          # resumes from the warm CAS in ~25 min. Only infra signatures are
+          # retried — genuine build failures exit immediately.
           set -o pipefail
-          just bst build ${{ matrix.element }} 2>&1 \
-            | python3 files/scripts/bst-progress.py
+          attempt=1
+          max_attempts=3
+          while :; do
+            rc=0
+            just bst build ${{ matrix.element }} 2>&1 \
+              | tee /tmp/bst-build-out.txt \
+              | python3 files/scripts/bst-progress.py || rc=$?
+            [ "$rc" -eq 0 ] && break
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::bst build failed after ${attempt} attempts (rc=${rc})"
+              exit "$rc"
+            fi
+            if grep -qE "Operation with name .* not found|Failed contacting remote execution server|Stream removed|DEADLINE_EXCEEDED|Failed to contact remote execution endpoint" /tmp/bst-build-out.txt; then
+              attempt=$((attempt + 1))
+              echo "::warning::RE infrastructure failure on attempt $((attempt - 1)) — retrying (warm cache resumes), attempt ${attempt}/${max_attempts}"
+            else
+              echo "::error::bst build failed with a non-infrastructure error (rc=${rc})"
+              exit "$rc"
+            fi
+          done
         timeout-minutes: 480
 
       # Push all locally-built artifacts to remote CAS so publish.yml can export

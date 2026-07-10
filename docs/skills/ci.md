@@ -2488,3 +2488,64 @@ recovery with `echo | openssl s_client -connect cache.projectbluefin.io:11002`
 **Setting:** `max-jobs: 8` with `builders: 2`. Still 8x the old -j1 throughput,
 peak compile RAM ~2x8x6 GB = ~96 GB worst case, under the ceiling. Do not raise
 back to 16 without server-side memory monitoring in place.
+
+### RE backend is buildbarn on the ghost cluster — 30m default action timeout was the real killer (2026-07-10)
+
+cache.projectbluefin.io:11002 is NOT an opaque external service: it is the buildbarn
+grid on the ghost k3s cluster (namespace buildbarn: frontend x2, scheduler, storage x2,
+worker on ghost + exo-0), managed by GitOps from projectbluefin/lab manifests/
+(ArgoCD app testing-lab-infra). kubectl access from the dev machine works. When "the
+server" misbehaves, debug it directly:
+
+- `kubectl get pods -n buildbarn` — look for restarts; exo-0 node crashes take out
+  scheduler + storage-0 + one worker simultaneously.
+- Scheduler queue is in-memory: a scheduler restart LOSES all queued actions, and the
+  BST client's "Waiting for the remote build to complete" then hangs forever (no
+  requeue, no error). A run frozen on one action after a scheduler restart is dead —
+  cancel it.
+- Worker log line `Action: ... with timeout 30m0s` reveals the effective action
+  timeout. BST sends no explicit timeout, so buildbarn's defaultExecutionTimeout in
+  the initialSizeClassAnalyzer block is the cap on EVERY remote compile. It was
+  1800s — gcc-stage1/llvm/webkit (1-4h actions) were killed at 30m every time, which
+  produced the recurring "big element dies ~30min in" outage pattern. Fixed in
+  projectbluefin/lab manifests/buildbarn-config.yaml: default 21600s, max 28800s.
+  Config change requires `kubectl rollout restart deploy/scheduler -n buildbarn`
+  (config loads at start) — restart only when no build is running.
+- The 2026-07-09 "-j16 crashed the server" hypothesis was wrong: the RST_STREAM +
+  DEADLINE_EXCEEDED outage was the exo-0 node crashing (all its pods exited 255 at
+  once), unrelated to compile parallelism.
+
+Also observed: a healthy warm run reaches ~91% of elements (pull+fetch) in ~25 min;
+the remaining ~95 elements are the real rebuild tail. GH job log API flushes in ~5k
+line chunks and build-phase output is sparse — hours of flat line-count is normal.
+
+### RE scheduler restarts hang BST forever — NOT_FOUND hotfix + build retry loop (2026-07-10)
+
+buildbarn's scheduler queue is in-memory. If the scheduler restarts (node crash,
+config rollout) while a remote action runs, the operation is gone: WaitExecution
+returns NOT_FOUND ("Operation with name ... not found", bb-remote-execution
+in_memory_build_queue.go:587). BST's `_sandboxremote.py` fatal-code list
+(INVALID_ARGUMENT, FAILED_PRECONDITION, RESOURCE_EXHAUSTED, INTERNAL,
+DEADLINE_EXCEEDED) omits NOT_FOUND, so `__run_remote_command` silently retries
+forever — the client hangs on "Waiting for the remote build to complete" until
+the 480m job timeout. This burned two full runs in the 11-day outage.
+
+GitHub-side fix (no cluster dependency), in build.yml:
+1. "Hotfix BST remote-execution NOT_FOUND hang" step: extracts
+   `_sandboxremote.py` from the bst2 image, adds `grpc.StatusCode.NOT_FOUND,`
+   to the fatal tuple after DEADLINE_EXCEEDED (regex-based, idempotent, aborts
+   loudly if BST refactors the tuple), and mounts it over the image copy via
+   `BST_PODMAN_EXTRA_ARGS` (new optional podman-args hook in the Justfile `bst`
+   recipe). NOTE: NOT_FOUND also appears in the action-cache miss path — the
+   "already patched" check must match `DEADLINE_EXCEEDED,\s*grpc.StatusCode.NOT_FOUND,`
+   specifically, not just the presence of NOT_FOUND anywhere.
+2. Build-step retry loop (max 3 attempts): `tee` the bst output, and on failure
+   grep for RE infra signatures ("Operation with name .* not found", "Failed
+   contacting remote execution server", "Stream removed", DEADLINE_EXCEEDED,
+   "Failed to contact remote execution endpoint"). Infra failure -> re-run bst,
+   which resumes from the warm CAS in ~25 min. Non-infra failures exit
+   immediately (no useless retries of genuine compile errors).
+
+Drop the hotfix when upstream BST treats lost operations as fatal (check the
+fatal tuple in the image's `_sandboxremote.py`; the step then logs "already
+handles NOT_FOUND upstream").

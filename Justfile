@@ -49,12 +49,15 @@ bst *ARGS:
     fi
 
     # BST_FLAGS allows appending --no-interactive, --config, etc.
-    # Word-splitting is intentional here (flags are space-separated).
+    # BST_PODMAN_EXTRA_ARGS allows extra podman flags (e.g. CI mounts a
+    # hotfixed BST module over the image copy). Word-splitting is
+    # intentional here (flags are space-separated).
     # shellcheck disable=SC2086
     podman run --rm \
         --privileged \
         --device /dev/fuse \
         --network=host \
+        ${BST_PODMAN_EXTRA_ARGS:-} \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
