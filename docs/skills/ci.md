@@ -2565,8 +2565,11 @@ warm CAS.
 
 Threshold rationale: `bst --no-interactive` prints on task start/end events;
 with multiple parallel builders the longest observed silent gap is well under
-the ~37 min gcc-stage1 build. 65 min of *total* silence across all builders
-means a dead client, not a slow compile. Do not lower this below ~45 min.
+the ~37 min gcc-stage1 build. A 65-min timeout was initially used but proved too
+short during heavy downloading and layer assembly/pulls (observed 2026-07-11:
+killed pipe exiting with 137). The threshold was increased to 120 min (7200 s)
+to prevent false-positive kills while still guarding against absolute hangs.
+Do not lower this below ~90 min.
 
 ### Runner-only publish fallback: publish-local.yml (2026-07-11)
 
