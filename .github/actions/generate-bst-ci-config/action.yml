@@ -86,6 +86,20 @@ runs:
             auth:
               client-key: /src/client.key
               client-cert: /src/client.crt
+          - url: https://gbm.gnome.org:11003
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+          - url: https://cache.freedesktop-sdk.io:11001
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
 
         source-caches:
           servers:
@@ -99,6 +113,20 @@ runs:
             auth:
               client-key: /src/client.key
               client-cert: /src/client.crt
+          - url: https://gbm.gnome.org:11003
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+          - url: https://cache.freedesktop-sdk.io:11001
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
 
         BSTCONFCACHE
 
@@ -233,6 +261,20 @@ runs:
             auth:
               client-key: /src/client.key
               client-cert: /src/client.crt
+          - url: https://gbm.gnome.org:11003
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+          - url: https://cache.freedesktop-sdk.io:11001
+            push: false
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
 
         BSTCONFPUSH
           cp buildstream-push.conf logs/buildstream-push.conf

@@ -2571,3 +2571,12 @@ Caveat: images published this way fail execute-release.yml's cosign
 identity check (anchored to publish.yml), so :testing from this path cannot
 promote to :stable until a normal publish.yml run succeeds after the RE
 backend returns.
+
+### Overriding cache servers in buildstream-ci.conf wipes upstream caches (2026-07-11)
+
+When generating a custom `buildstream-ci.conf` in CI and specifying custom `artifacts` or `source-caches` blocks, BuildStream completely overrides the project-level cache servers defined in `project.conf` rather than appending to them.
+
+**The Failure Pattern:** On core junction bumps (e.g. freedesktop-sdk or gnome-build-meta updates), if remote execution is disabled and the generated config overrides the server list to contain only the projectbluefin CAS, there is a cache miss on almost the entire universe. Because the upstream read-only caches (`gbm.gnome.org:11003` and `cache.freedesktop-sdk.io:11001`) are absent from the overridden configuration, the local runner is forced to download the sources and compile the entire SDK/GNOME desktop from source. On 2-core GHA runners, this causes multi-hour compiles that trigger OOM (exit code 137) or timeouts.
+
+**The Fix:** Always include the upstream read-only caches as fallback servers in any overridden `artifacts` and `source-caches` blocks within the generated `buildstream-ci.conf`. This preserves 100% cache alignment with upstream SDK/GNOME builds and allows the local runner to pull pre-built SDK/GNOME artifacts instantly, ensuring that only the lightweight, project-specific elements are assembled locally.
+
