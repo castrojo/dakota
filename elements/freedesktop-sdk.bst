@@ -9,7 +9,7 @@ sources:
 - kind: git_repo
   url: gitlab:freedesktop-sdk/freedesktop-sdk.git
   track: freedesktop-sdk-25.08*
-  ref: freedesktop-sdk-25.08.13-0-g8446990f0a549bb1f3ceb654af64fc176b274488
+  ref: freedesktop-sdk-25.08.14-0-g57149392fe26548b0e7c50a2e171e3aac005a412
 # This patch queue must stay byte-identical to gnome-build-meta's
 # patches/freedesktop-sdk/ at the pinned gbm ref — cache reuse against
 # gbm.gnome.org depends on it. See docs/skills/bst-overrides.md.
