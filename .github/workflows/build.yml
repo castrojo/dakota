@@ -444,7 +444,7 @@ jobs:
           attempt=1
           max_attempts=3
           base_extra="${BST_PODMAN_EXTRA_ARGS:-}"
-          stall_secs=3900
+          stall_secs=7200
           while :; do
             rc=0
             : > /tmp/bst-build-out.txt
