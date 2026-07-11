@@ -2571,3 +2571,40 @@ Threshold rationale: `bst --no-interactive` prints on task start/end events;
 with multiple parallel builders the longest observed silent gap is well under
 the ~37 min gcc-stage1 build. 65 min of *total* silence across all builders
 means a dead client, not a slow compile. Do not lower this below ~45 min.
+
+### Runner-only publish fallback: publish-local.yml (2026-07-11)
+
+When the remote execution / CAS backend (cache.projectbluefin.io) is down,
+build.yml cannot publish: the full-build job hard-codes RE=true, BST hangs
+silently waiting on the dead scheduler, and the 65-min stall watchdog kills
+it (exit 137, three attempts, both variants). Signature: `Cached elements
+after warm: 0` progress stalls plus repeated 137s in "Build Bluefin dakota".
+
+`publish-local.yml` (workflow_dispatch) is the fallback. It builds the whole
+graph on GitHub-hosted runners with RE and push disabled, then exports,
+lints, boot-checks, pushes :SHA, and promotes :testing — no cluster
+involvement anywhere.
+
+Key mechanics:
+- Two parallel seed shards (`just warmup-shard webkit|rest`) cold-start the
+  graph, then up to six sequential "link" jobs each resume
+  `bst build oci/bluefin.bst` from the newest cache artifact.
+- Cache transport is a zstd tar of ~/.cache/buildstream carried between jobs
+  as workflow artifacts. Artifact names are IMMUTABLE within a run — link
+  uploads must use unique names (bst-cache-link-<run>-<n>); consumers pick
+  the newest by created_at across the name prefix via the artifacts API, so
+  a re-dispatch resumes from a previous run's artifacts.
+- The zip download is streamed through Python zipfile into `tar --zstd -x`
+  to avoid double disk usage; both the download and the pack output live
+  inside the spanned btrfs CAS volume (excluded from the tar).
+- Build steps never fail the job: completion is signalled by a per-SHA
+  `bst-done-<sha>` marker artifact. Later links short-circuit on it and the
+  publish job gates on it, so partial progress is always preserved and a
+  failed run is continued by simply dispatching again.
+- Joins the `dakota-bst-build-global` concurrency group — still one BST
+  build at a time.
+
+Caveat: images published this way fail execute-release.yml's cosign
+identity check (anchored to publish.yml), so :testing from this path cannot
+promote to :stable until a normal publish.yml run succeeds after the RE
+backend returns.
