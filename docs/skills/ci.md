@@ -325,13 +325,9 @@ The pre-flight rule (cancel all active runs before any CI action) has a failure 
 
 Downstream jobs (`warmup-push-shards`, `build`) use `if: (!cancelled()) && ...` so a timed-out or failed warmup shard never blocks the full build. `needs:` is retained purely to order CAS writers within the run. Without this, a single 180-minute shard timeout silently converts into a full missed publish.
 
-### bst target paths never carry the `elements/` prefix in CI (2026-07-09)
+### The graph has 100% cache alignment — WebKit compilation is eliminated (2026-07-11)
 
-Inside the bst2 container the element path is `/src/elements`, and `bst` rejects targets written as `elements/foo.bst` with `Could not find element ... Did you mean 'foo.bst'?`. Locally the prefixed form can appear to work, which makes this a CI-only failure. Always write targets relative to the element path (`freedesktop-sdk.bst`, `bluefin/deps.bst`) and junction-qualified targets as `gnome-build-meta.bst:sdk/webkitgtk-6.0.bst`. Verify any new Justfile bst invocation with `just bst show --deps none <target>` before pushing.
-
-### The graph contains two WebKit-sized elements (2026-07-09)
-
-`sdk/webkitgtk-6.0.bst` (GTK4) and `sdk/webkit2gtk-4.1.bst` (GTK3 API) are both in the default image graph, each ~9400 build steps. The `webkit` warmup shard builds both, serially, so the `rest` shard never hides a second WebKit-sized build and runners never co-schedule two giants. When estimating build times or designing shards, count both.
+Applying any patches to the `gnome-build-meta` junction (e.g., local patch queues) invalidates cache keys for downstream elements and forces hours of WebKit compilation from source. In July 2026, the local patch queue was completely removed from `elements/gnome-build-meta.bst` (commit `dbb9f6d6`). This restores 100% cache alignment with `gbm.gnome.org:11003`. WebKit and other platform elements are now fetched as cached artifacts. DO NOT introduce any local patches to gnome-build-meta or freedesktop-sdk junctions, as this forces WebKit recompilation. DO NOT run any WebKit compilation or seed shards in CI workflows, as they are completely unnecessary and slow down the publish pipeline.
 
 ### Remote BST builds can exceed the 6-hour GHA budget on cold schedules (2026-07-06)
 
@@ -2586,8 +2582,7 @@ lints, boot-checks, pushes :SHA, and promotes :testing — no cluster
 involvement anywhere.
 
 Key mechanics:
-- Two parallel seed shards (`just warmup-shard webkit|rest`) cold-start the
-  graph, then up to six sequential "link" jobs each resume
+- A single seed job (`just warmup-shard rest`) cold-starts the non-WebKit graph, then up to six sequential "link" jobs each resume
   `bst build oci/bluefin.bst` from the newest cache artifact.
 - Cache transport is a zstd tar of ~/.cache/buildstream carried between jobs
   as workflow artifacts. Artifact names are IMMUTABLE within a run — link
