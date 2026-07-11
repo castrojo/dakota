@@ -70,6 +70,16 @@ check-publish-workflow:
     python3 scripts/check_publish_workflow.py
 
 [group('dev')]
+monitor-pipeline BUILD_RUN_ID="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{BUILD_RUN_ID}}" ]; then
+        echo "usage: just monitor-pipeline BUILD_RUN_ID=<run-id>" >&2
+        exit 2
+    fi
+    python3 files/monitor_pipeline.py --build-run-id "{{BUILD_RUN_ID}}"
+
+[group('dev')]
 validate:
     just check-publish-workflow
     just bst show --deps all oci/bluefin.bst

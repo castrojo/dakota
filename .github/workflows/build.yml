@@ -4,26 +4,17 @@ on:
   push:
     branches: [testing]
     paths:
-      - 'elements/**'
-      - 'patches/**'
-      - 'project.conf'
-      - 'include/**'
+      - "elements/**"
+      - "patches/**"
+      - "project.conf"
+      - "include/**"
   # Fires daily at 13:00 UTC — 5 hours after the gnome-build-meta nightly
   # (~08:00 UTC) to absorb nightly deltas before building.
   # NOTE: schedule triggers run on the default branch; set testing as the
   # default branch in repo settings for this to target testing.
   schedule:
-    - cron: '0 13 * * *'
+    - cron: "0 13 * * *"
   workflow_dispatch:
-    # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
-    # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
-    # require gbm.gnome.org to have built the new ref first — dispatch too early
-    # and you get a cold build that times out.
-    inputs:
-      skip-warmup:
-        description: 'Skip warmup shards and go straight to the build job (publish-critical runs)'
-        type: boolean
-        default: false
 
 permissions: read-all
 
@@ -47,183 +38,23 @@ concurrency:
 jobs:
   # ── Default-branch precondition ──────────────────────────────────────────
   # Scheduled triggers always run on the repository default branch. If the
-  # default branch is not 'testing', the daily build silently targets the
+  # default branch is not "testing", the daily build silently targets the
   # wrong ref. Fail fast and loudly when that invariant is violated.
   verify-default-branch:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: github.event_name == "schedule" || github.event_name == "workflow_dispatch" || github.event_name == "push"
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
-      - name: Verify repository default branch is 'testing'
+      - name: Verify repository default branch is "testing"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           db=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .default_branch)
           if [ "$db" != "testing" ]; then
-            echo "::error::default branch is '$db', expected 'testing'. Daily schedule will silently target wrong branch. Fix repo settings."
+            echo "::error::default branch is "$db", expected "testing". Daily schedule will silently target wrong branch. Fix repo settings."
             exit 1
           fi
-
-  # ── Pull-only warmup shards ─────────────────────────────────────────────
-  # BuildStream cache warmup is split into a WebKit shard and a rest-of-graph
-  # shard. Shard builds run with remote execution AND push disabled: RE would
-  # write action inputs/results through the RE storage-service, making two
-  # parallel shards two concurrent CAS writers (violates the one-writer rule).
-  # With RE off, builds compile on the runner, are genuinely read-only toward
-  # the CAS, and every built artifact is guaranteed to land in the runner-local
-  # cache — which the push jobs then need.
-  #
-  # GitHub Actions job concurrency would serialize an entire shard job, not
-  # just its final push, so pushing happens in follow-up jobs (matrix
-  # max-parallel: 1). The build->push handoff uses a same-run workflow
-  # artifact (if-no-files-found: error), NOT actions/cache: the cache has a
-  # 10 GB repo-wide LRU limit and its save failures are silent warnings,
-  # which would degrade to "CAS never gets seeded" without any red X.
-  # actions/cache is used only as a best-effort L1 warm-start for future runs.
-  warmup-build-shards:
-    needs: [verify-default-branch]
-    # Bare inputs.skip-warmup (no ${{ }}): inputs context is absent on
-    # push/schedule and the bare form evaluates false-y safely there.
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && !inputs.skip-warmup
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [webkit, rest]
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Setup runner
-        uses: projectbluefin/actions/bootc-build/setup-runner@v1
-        with:
-          storage-backend: btrfs
-          update-podman: true
-          install-tools: '["just"]'
-
-      - name: Restore BST workspace cache (x86_64 warmup)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/buildstream
-            !~/.cache/buildstream/buildtrees
-            !~/.cache/buildstream/logs
-          key: bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-${{ hashFiles('elements/freedesktop-sdk.bst', 'elements/gnome-build-meta.bst', 'patches/**', 'project.conf', 'include/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-${{ hashFiles('elements/freedesktop-sdk.bst', 'elements/gnome-build-meta.bst', 'patches/**', 'project.conf', 'include/**') }}-
-            bst-warm-x86_64-${{ github.ref_name }}-${{ matrix.shard }}-
-            bst-warm-x86_64-${{ matrix.shard }}-
-            bst-warm-x86_64-
-
-      - name: Generate BuildStream CI config
-        env:
-          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
-          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
-        uses: ./.github/actions/generate-bst-ci-config
-        with:
-          # RE must stay off: see the shard design comment above.
-          enable-remote-execution: 'false'
-          enable-push: 'false'
-
-      # Step-level timeout, NOT job-level: when a JOB times out, remaining
-      # steps are skipped and actions/cache post-save does not run, so hours
-      # of compiled artifacts are discarded — the exact non-monotonic failure
-      # this shard design exists to prevent. A STEP timeout terminates only
-      # the build step; the handoff steps below still run (guarded with
-      # !cancelled()) and push whatever was built. 150m build + 30m handoff
-      # fits the 180m job budget.
-      - name: Build warmup shard
-        timeout-minutes: 150
-        run: just warmup-shard ${{ matrix.shard }}
-
-      # Same-run handoff to the serialized push jobs. Buildtrees and logs are
-      # excluded; CAS blobs are already compressed, so compression-level: 0.
-      # !cancelled(): must run even when the build step failed or timed out,
-      # so partial progress is preserved (monotonic seeding).
-      - name: Pack BST cache for push handoff
-        if: ${{ !cancelled() }}
-        run: tar -C "$HOME" --exclude=.cache/buildstream/logs --exclude=.cache/buildstream/buildtrees -cf "$RUNNER_TEMP/bst-cache-shard.tar" .cache/buildstream
-
-      - name: Upload BST cache transport artifact
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bst-warm-transport-${{ matrix.shard }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/bst-cache-shard.tar
-          retention-days: 1
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload warmup logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: buildstream-warmup-logs-x86_64-${{ matrix.shard }}-${{ github.sha }}
-          path: logs/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  warmup-push-shards:
-    needs: [warmup-build-shards]
-    # Warmup is best-effort: a failed or timed-out shard must not block the
-    # push of the surviving shard, and never the full build below.
-    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && !inputs.skip-warmup
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        shard: [webkit, rest]
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Setup runner
-        uses: projectbluefin/actions/bootc-build/setup-runner@v1
-        with:
-          storage-backend: btrfs
-          update-podman: true
-          install-tools: '["just"]'
-
-      # Exact same-run transport artifact only — never actions/cache with
-      # fallback keys, which can silently restore a stale cache and push
-      # nothing. download-artifact fails the job if the artifact is missing.
-      - name: Download BST cache transport artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: bst-warm-transport-${{ matrix.shard }}-${{ github.run_id }}
-          path: ${{ runner.temp }}
-
-      - name: Unpack BST cache
-        run: tar -C "$HOME" -xf "$RUNNER_TEMP/bst-cache-shard.tar"
-
-      - name: Generate BuildStream push config
-        env:
-          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
-          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
-        uses: ./.github/actions/generate-bst-ci-config
-        with:
-          enable-remote-execution: 'false'
-          enable-push: 'true'
-
-      - name: Push warmup shard artifacts to remote CAS
-        run: just warmup-shard-push ${{ matrix.shard }}
-
-      - name: Upload warmup push logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: buildstream-warmup-push-logs-x86_64-${{ matrix.shard }}-${{ github.sha }}
-          path: logs/
-          retention-days: 7
-          if-no-files-found: ignore
 
   # ── Full OCI build ────────────────────────────────────────────────────────
   # Fires on schedule, workflow_dispatch, and key-busting pushes to testing.
@@ -232,16 +63,10 @@ jobs:
   # cancelled when the PR merges (before the 5h build can finish), which
   # wastes the CAS slot and starves the scheduled build.
   build:
-    # Deliberate ordering: the full build runs with remote execution enabled,
-    # which makes it a CAS writer. It must not overlap the warmup push jobs
-    # (also CAS writers) within this run. On warm runs the warmup phase is
-    # pull-only and completes in minutes, so this gate is cheap.
-    needs: [warmup-push-shards]
-    # Warmup failures must never block the publish path; needs: is kept only
-    # to order this CAS writer after the warmup push phase within the run.
-    if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    needs: [verify-default-branch]
+    if: (!cancelled()) && (github.event_name == "schedule" || github.event_name == "workflow_dispatch" || github.event_name == "push")
     runs-on: ubuntu-24.04
-    timeout-minutes: 480
+    timeout-minutes: 360
     # Variants build serially so the final OCI artifact pushes never overlap.
     strategy:
       fail-fast: false
@@ -250,12 +75,12 @@ jobs:
         include:
           - variant: default
             element: oci/bluefin.bst
-            image_suffix: ''
+            image_suffix: ""
             publish: true
             continue: false
           - variant: nvidia
             element: oci/bluefin-nvidia.bst
-            image_suffix: '-nvidia'
+            image_suffix: "-nvidia"
             publish: true
             continue: true
     continue-on-error: ${{ matrix.continue }}
@@ -265,15 +90,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # FIXME: Make the build with JWT work
-      # - name: Get JWT token
-      #   previously used actions/github-script (kept disabled)
-      #   with:
-      #     script: |
-      #       const fs = require('fs');
-      #       const token = await core.getIDToken('cache.projectbluefin.io')
-      #       fs.writeFileSync('bluefin.token', token, { mode: 0o600 });
-
       - name: Capture build timestamp
         id: timestamp
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -282,120 +98,29 @@ jobs:
       # Runs before any podman call (BST uses rootful podman to pull bst2;
       # storage backend must be stable before first use).
       # update-podman: true — newer podman from Ubuntu resolute for bst2 pull.
-      # Note: setup-runner btrfs does not pass loopback-free; watch for disk
-      # pressure and upstream the option if needed.
       - name: Setup runner
         uses: projectbluefin/actions/bootc-build/setup-runner@v1
         with:
           storage-backend: btrfs
           update-podman: true
-          install-tools: '["just"]'
-
-      # ── Provision BST cache volume ────────────────────────────────────
-      # Semi-cold RE builds mirror every remotely-built artifact into the
-      # runner's local CAS (~/.cache/buildstream). The full dakota graph
-      # exceeds the ~53 GB free on / — run 29037334809 died with 553
-      # cascading "Cache too full" (RESOURCE_EXHAUSTED from buildbox-casd
-      # CaptureFiles) failures once the disk filled. BST cannot prune
-      # mid-session because every pulled object is referenced by the
-      # current build targets.
-      #
-      # Fix: span the free space on / and /mnt with two loopback files,
-      # join them in a single btrfs (data single) mounted with
-      # compress-force=zstd:2 — CAS objects are mostly ELF binaries and
-      # debug info, so compression roughly doubles effective capacity
-      # (~95 GB raw -> ~150+ GB effective).
-      #
-      # /mnt also hosts setup-runner's sparse /var/lib/containers loopback,
-      # but the build job only stores the bst2 image there (~4 GB), so a
-      # 55 GB allocation is safe.
-      - name: Provision BST cache volume
-        run: |
-          set -euo pipefail
-          sudo truncate -s 40G /home/runner/bst-cache-0.img
-          sudo truncate -s 55G /mnt/bst-cache-1.img
-          DEV0=$(sudo losetup --find --show /home/runner/bst-cache-0.img)
-          DEV1=$(sudo losetup --find --show /mnt/bst-cache-1.img)
-          sudo mkfs.btrfs -q -d single -m single "$DEV0" "$DEV1"
-          sudo btrfs device scan
-          mkdir -p "$HOME/.cache/buildstream"
-          sudo mount -o compress-force=zstd:2,noatime "$DEV0" "$HOME/.cache/buildstream"
-          sudo chown "$(id -u):$(id -g)" "$HOME/.cache/buildstream"
-          echo "==> BST cache volume:"
-          df -h "$HOME/.cache/buildstream"
+          install-tools: "["just"]"
 
       # ── Generate CI-specific BuildStream config ───────────────────────
-      # Tuned per gnome-build-meta CI patterns:
-      # - on-error: continue  -> find ALL failures, don't stop at first
-      # - fetchers: 32        -> parallel downloads from upstream caches
-      # - builders: 4         -> Concurrent builds are controlled in the casd server
-      # - retry-failed: True  -> auto-retry flaky builds
-      # - error-lines: 80     -> generous error context in logs
-      # - cache-buildtrees: never -> save disk (we only need final artifacts)
-      #
+      # The supported Dakota path is a single BuildStream build of the final
+      # OCI element followed by a push of the built artifact to the remote CAS.
+      # This keeps the build in the same assembly-only architecture that worked
+      # before the warmup/seed/RE-self-heal workarounds were introduced.
       - name: Generate BuildStream CI config
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Remote execution dispatches build actions to cache.projectbluefin.io:11002
-          # (16c/32t Ryzen 9 7950X3D). The action nests storage-service INSIDE the
-          # remote-execution: block — this satisfies BST's validation without putting
-          # casd in write-through proxy mode (which caused gRPC drops after 3.5h).
-          #
-          # enable-push stays false: the explicit "Push OCI artifact to remote CAS" step
-          # below handles cache writes atomically after the build succeeds. This avoids
-          # sustained gRPC write streams during the build phase.
-          #
-          # DO NOT add top-level cache.storage-service — that routes ALL casd operations
-          # through the remote and reintroduces the 3.5-hour gRPC flooding failure.
-          # See docs/skills/ci.md "Remote Execution with Nested storage-service".
-          # Remote execution is enabled here so expensive BST builds are dispatched
-          # to the remote cache server instead of being compiled entirely on the runner.
-          enable-remote-execution: 'true'
-          enable-push: 'false'
-
-      # ── BuildStream build ─────────────────────────────────────────────
-      # Uses the Justfile's `bst` wrapper to run BuildStream inside the
-      # bst2 container. CI-specific flags (--no-interactive, --config)
-      # are injected via BST_FLAGS env var.
-
-      # ── BST RE hotfix: fail fast on operations lost by the RE scheduler ──
-      # buildbarn's scheduler queue is in-memory: if the scheduler restarts
-      # while an action runs, WaitExecution returns NOT_FOUND for the lost
-      # operation (bb-remote-execution in_memory_build_queue.go: "Operation
-      # with name %#v not found"). BST's _sandboxremote.py does not treat
-      # NOT_FOUND as fatal, so it silently retries forever — the client hangs
-      # on "Waiting for the remote build to complete" until the 480m job
-      # timeout. Patch the image copy of _sandboxremote.py to make NOT_FOUND
-      # fatal; combined with the retry loop in the build step this makes the
-      # job self-heal from RE infrastructure flaps.
-      - name: Hotfix BST remote-execution NOT_FOUND hang
-        run: |
-          set -euo pipefail
-          IMG=$(just --evaluate bst2_image)
-          podman pull -q "$IMG"
-          TARGET=$(podman run --rm "$IMG" python3 -c \
-            'import buildstream.sandbox._sandboxremote as m; print(m.__file__)')
-          podman run --rm "$IMG" cat "$TARGET" > /tmp/bst_sandboxremote.py
-          python3 - <<'EOF'
-          import re, sys
-          path = "/tmp/bst_sandboxremote.py"
-          src = open(path).read()
-          # NOT_FOUND appears elsewhere (action-cache miss handling); check
-          # specifically for it inside the fatal-code tuple after DEADLINE_EXCEEDED.
-          if re.search(r"DEADLINE_EXCEEDED,\s*grpc\.StatusCode\.NOT_FOUND,", src):
-              print("already handles NOT_FOUND upstream — no patch needed")
-              sys.exit(0)
-          pattern = r"(\n(\s*)grpc\.StatusCode\.DEADLINE_EXCEEDED,)"
-          new, n = re.subn(pattern, r"\1\n\2grpc.StatusCode.NOT_FOUND,", src, count=1)
-          if n != 1:
-              sys.exit("fatal-code tuple not found in _sandboxremote.py — BST changed, update this step")
-          open(path, "w").write(new)
-          print("patched: NOT_FOUND added to fatal RE status codes")
-          EOF
-          echo "BST_PODMAN_EXTRA_ARGS=-v /tmp/bst_sandboxremote.py:${TARGET}:ro" >> "$GITHUB_ENV"
+          # Remote execution is disabled here so we pull cached artifacts from the CAS
+          # and avoid the remote execution queue and server capacity bottlenecks.
+          # We perform final image assembly locally on the GHA runner.
+          enable-remote-execution: "false"
+          enable-push: "false"
 
       # Count the full element graph so the progress script can show %.
       # bst show only reads element YAML + fetches junction refs — no CAS
@@ -407,7 +132,7 @@ jobs:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
         run: |
           set +e
-          BST_SHOW_OUT=$(just bst show --deps all --format '%{name}' \
+          BST_SHOW_OUT=$(just bst show --deps all --format "%{name}" \
             ${{ matrix.element }} 2>&1)
           rc=$?
           set -e
@@ -426,66 +151,12 @@ jobs:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
           ELEMENT_TOTAL: ${{ steps.count.outputs.total }}
         run: |
-          # pipefail: propagate non-zero exit from `just bst build` through the pipe.
-          # Retry loop: RE infrastructure flaps (scheduler restart loses the
-          # in-memory queue -> NOT_FOUND via the hotfix above, node crashes,
-          # dropped streams) fail the session instead of hanging; a re-run
-          # resumes from the warm CAS in ~25 min. Only infra signatures are
-          # retried — genuine build failures exit immediately.
-          #
-          # Stall watchdog: some RE flaps black-hole the client without any
-          # gRPC error surfacing (observed 2026-07-10: full buildbarn pod
-          # restart -> bst silent forever, NOT_FOUND hotfix never fired).
-          # bst --no-interactive only prints on task events; the longest
-          # observed single action is ~37 min (gcc-stage1), so 65 min of
-          # total output silence means a dead client. The watchdog kills the
-          # named bst container, which fails the pipe and trips the retry.
           set -o pipefail
-          attempt=1
-          max_attempts=3
-          base_extra="${BST_PODMAN_EXTRA_ARGS:-}"
-          stall_secs=7200
-          while :; do
-            rc=0
-            : > /tmp/bst-build-out.txt
-            cname="bst-build-${attempt}"
-            (
-              while :; do
-                sleep 120
-                mt=$(stat -c %Y /tmp/bst-build-out.txt 2>/dev/null || echo 0)
-                if [ $(( $(date +%s) - mt )) -ge "$stall_secs" ]; then
-                  echo "STALL_WATCHDOG: no bst output for ${stall_secs}s — killing ${cname}" >> /tmp/bst-build-out.txt
-                  podman kill "${cname}" >/dev/null 2>&1 || true
-                  exit 0
-                fi
-              done
-            ) &
-            wd=$!
-            BST_PODMAN_EXTRA_ARGS="${base_extra} --name ${cname}" \
-              just bst build ${{ matrix.element }} 2>&1 \
-              | tee -a /tmp/bst-build-out.txt \
-              | python3 files/scripts/bst-progress.py || rc=$?
-            kill "$wd" 2>/dev/null || true
-            [ "$rc" -eq 0 ] && break
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "::error::bst build failed after ${attempt} attempts (rc=${rc})"
-              exit "$rc"
-            fi
-            if grep -qE "STALL_WATCHDOG|Operation with name .* not found|Failed contacting remote execution server|Stream removed|DEADLINE_EXCEEDED|Failed to contact remote execution endpoint" /tmp/bst-build-out.txt; then
-              attempt=$((attempt + 1))
-              echo "::warning::RE infrastructure failure on attempt $((attempt - 1)) — retrying (warm cache resumes), attempt ${attempt}/${max_attempts}"
-            else
-              echo "::error::bst build failed with a non-infrastructure error (rc=${rc})"
-              exit "$rc"
-            fi
-          done
-        timeout-minutes: 480
+          just bst build ${{ matrix.element }} 2>&1 \
+            | python3 files/scripts/bst-progress.py
+        timeout-minutes: 330
 
-      # Push all locally-built artifacts to remote CAS so publish.yml can export
-      # and the next scheduled build starts warm. Uses buildstream-push.conf
-      # (push: true, no storage-service) so bst artifact push can write without
-      # a sustained gRPC stream during the build phase. --deps run ensures every
-      # runtime element rebuilt locally or pulled during the build is cached.
+      # Push the built OCI artifact to remote CAS so publish.yml can export it.
       - name: Push OCI artifact to remote CAS
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
@@ -494,7 +165,6 @@ jobs:
 
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
-
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

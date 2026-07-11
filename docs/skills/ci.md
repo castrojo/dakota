@@ -2515,61 +2515,26 @@ Also observed: a healthy warm run reaches ~91% of elements (pull+fetch) in ~25 m
 the remaining ~95 elements are the real rebuild tail. GH job log API flushes in ~5k
 line chunks and build-phase output is sparse — hours of flat line-count is normal.
 
-### RE scheduler restarts hang BST forever — NOT_FOUND hotfix + build retry loop (2026-07-10)
+   ### Current build workflow path (2026-07-11)
 
-buildbarn's scheduler queue is in-memory. If the scheduler restarts (node crash,
-config rollout) while a remote action runs, the operation is gone: WaitExecution
-returns NOT_FOUND ("Operation with name ... not found", bb-remote-execution
-in_memory_build_queue.go:587). BST's `_sandboxremote.py` fatal-code list
-(INVALID_ARGUMENT, FAILED_PRECONDITION, RESOURCE_EXHAUSTED, INTERNAL,
-DEADLINE_EXCEEDED) omits NOT_FOUND, so `__run_remote_command` silently retries
-forever — the client hangs on "Waiting for the remote build to complete" until
-the 480m job timeout. This burned two full runs in the 11-day outage.
+   The workflow no longer uses the RE NOT_FOUND hotfix, the retry loop, or the
+   output-stall watchdog added during the 2026-07-10 outage. The supported Dakota
+   path is a single direct `just bst build ...` invocation with the generated CI
+   config and the regular BuildStream container.
 
-GitHub-side fix (no cluster dependency), in build.yml:
-1. "Hotfix BST remote-execution NOT_FOUND hang" step: extracts
-   `_sandboxremote.py` from the bst2 image, adds `grpc.StatusCode.NOT_FOUND,`
-   to the fatal tuple after DEADLINE_EXCEEDED (regex-based, idempotent, aborts
-   loudly if BST refactors the tuple), and mounts it over the image copy via
-   `BST_PODMAN_EXTRA_ARGS` (new optional podman-args hook in the Justfile `bst`
-   recipe). NOTE: NOT_FOUND also appears in the action-cache miss path — the
-   "already patched" check must match `DEADLINE_EXCEEDED,\s*grpc.StatusCode.NOT_FOUND,`
-   specifically, not just the presence of NOT_FOUND anywhere.
-2. Build-step retry loop (max 3 attempts): `tee` the bst output, and on failure
-   grep for RE infra signatures ("Operation with name .* not found", "Failed
-   contacting remote execution server", "Stream removed", DEADLINE_EXCEEDED,
-   "Failed to contact remote execution endpoint"). Infra failure -> re-run bst,
-   which resumes from the warm CAS in ~25 min. Non-infra failures exit
-   immediately (no useless retries of genuine compile errors).
+   If a run appears stuck, do not layer on more ad hoc workflow retries or podman
+   hooks. Capture the run ID and monitor the build/publish pair from the CLI:
 
-Drop the hotfix when upstream BST treats lost operations as fatal (check the
-fatal tuple in the image's `_sandboxremote.py`; the step then logs "already
-handles NOT_FOUND upstream").
+   ```bash
+   just monitor-pipeline BUILD_RUN_ID=29125255417
+   ```
 
-### Stall watchdog: some RE flaps black-hole bst with no error at all (2026-07-10)
-
-The NOT_FOUND hotfix (above) only helps when the server *answers* with an
-error. Observed on run 29093568343: a full buildbarn pod-restart wave
-(frontend + scheduler + storage + workers all restarted at once) left the bst
-client silent forever — no NOT_FOUND, no stream error, nothing. The gRPC
-stream is simply black-holed and bst waits on it indefinitely.
-
-Fix in build.yml build step: an output-stall watchdog subshell. Every attempt
-runs the bst container with a known name (`--name bst-build-N` via
-`BST_PODMAN_EXTRA_ARGS`); a background loop checks the mtime of
-/tmp/bst-build-out.txt every 2 min and, after 65 min (3900 s) of total output
-silence, writes a `STALL_WATCHDOG` marker into the file and `podman kill`s
-the container. The killed pipe returns nonzero, the retry loop matches
-STALL_WATCHDOG as an infra signature, and the next attempt resumes from the
-warm CAS.
-
-Threshold rationale: `bst --no-interactive` prints on task start/end events;
-with multiple parallel builders the longest observed silent gap is well under
-the ~37 min gcc-stage1 build. A 65-min timeout was initially used but proved too
-short during heavy downloading and layer assembly/pulls (observed 2026-07-11:
-killed pipe exiting with 137). The threshold was increased to 120 min (7200 s)
-to prevent false-positive kills while still guarding against absolute hangs.
-Do not lower this below ~90 min.
+   The helper polls `gh run view` for the build run, waits for it to finish
+   successfully, and then resolves the follow-on `publish.yml` run by matching the
+   build run's `headSha`. If the build or publish run fails, it exits non-zero so
+   the terminal can be used in automation or local triage. The fallback
+   `publish-local.yml` path remains for runner-only recovery when the remote CAS/RE
+   service is unavailable.
 
 ### Runner-only publish fallback: publish-local.yml (2026-07-11)
 
