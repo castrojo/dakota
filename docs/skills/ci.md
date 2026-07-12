@@ -305,6 +305,20 @@ to source compilation; the failed run 29177123837 rebuilt
 `cache.projectbluefin.io:11002` and its read-only upstream fallbacks, while a
 miss fails rather than compiling.
 
+### Paired cache-only targets are required (2026-07-12)
+
+`oci/bluefin.bst` and `oci/bluefin-nvidia.bst` are a paired x86 release
+unit. Both runner-side assembly matrix legs must be required, and both
+immutable images must pass export, `bootc container lint`, and boot checks
+before either `:testing` tag is advanced. The standard testsuite smoke suite
+remains observational in `publish-smoke.yml`, where it runs for both
+SHA-pinned images after a successful paired publish; do not move it into the
+stable-promotion gate.
+
+All BuildStream workflows that write to the shared CAS, including aarch64,
+use `dakota-bst-build-global`. This serializes cache writers without coupling
+ARM failure to the x86 publish/release path.
+
 ### Publishing is the deliverable — local full-image builds are never a push gate (2026-07-09)
 
 An agent session extended a 10-day `:testing` outage to 11 days by gating the push of already-validated fixes on a full local image build (8+ hours, two WebKit variants). The fixes had sufficient targeted evidence hours earlier: the previously-failing element (mutter) compiled past its failure point, the graph was frei0r-free, `just patch-drift-check` and actionlint were green, and cache realignment was confirmed by the cached-element count jump. That is what "test evidence before push" means — targeted validation of the changed behavior. CI performs the full-image verification itself; duplicating it locally before pushing adds nothing and delays the publish by the length of the build. When `:testing` is stale, treat pushing the fix as the primary deliverable and local work as evidence-gathering only.

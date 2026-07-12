@@ -45,6 +45,17 @@ Use when you see:
 
 ## High-Value Failure Patterns
 
+### Composite action shell syntax must be tested as shell
+
+YAML validation does not parse the shell held in a composite action's `run: |`
+block. An unmatched `if` in `generate-bst-ci-config` caused both x86 target
+jobs to fail before BuildStream started. `scripts/check_publish_workflow.py`
+extracts that block and passes it to `bash -n`; `validate.yml` runs the
+checker through `just check-publish-workflow`.
+
+Keep this check when changing the config generator. A generated cache
+configuration is not evidence that the composite shell itself is parseable.
+
 ### Composite-action shell structure
 
 When removing a conditional branch from a composite action, remove its matching

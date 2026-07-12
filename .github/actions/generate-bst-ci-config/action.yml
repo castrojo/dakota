@@ -124,6 +124,7 @@ runs:
         BSTCONFSTORAGE
           fi
         fi
+        fi
 
         cp buildstream-ci.conf logs/buildstream-ci.conf
         echo "=== BuildStream CI config ==="

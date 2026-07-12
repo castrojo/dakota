@@ -22,8 +22,14 @@ permissions:
 jobs:
   smoke:
     if: github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: dakota
+          - image: dakota-nvidia
     uses: ./.github/workflows/run-testsuite.yml
     with:
-      image: ghcr.io/${{ github.repository_owner }}/dakota:${{ github.event.workflow_run.head_sha }}
+      image: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ github.event.workflow_run.head_sha }}
       suites: smoke
     secrets: inherit

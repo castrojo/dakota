@@ -22,15 +22,9 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Serialize workflow runs across branches/workflows that may write to the shared
-# BuildStream CAS. Pull-only warmup shard builds still run in parallel inside one
-# workflow run; only separate workflow runs queue here.
-#
-# Last-write-wins semantics: GitHub keeps at most one pending run per
-# concurrency group, so rapid successive pushes to testing cancel the
-# intermediate queued runs — only the newest pending run builds and
-# publishes. This is accepted by design; the daily 13:00 UTC schedule is
-# the guaranteed catch-up build for anything that got superseded.
+# Serialize all runner-side BuildStream assembly runs that write to the shared
+# CAS. A run assembles only final OCI targets; it never warms or compiles the
+# dependency graph.
 concurrency:
   group: dakota-bst-build-global
   cancel-in-progress: false
@@ -82,7 +76,7 @@ jobs:
             element: oci/bluefin-nvidia.bst
             image_suffix: "-nvidia"
             publish: true
-            continue: true
+            continue: false
     continue-on-error: ${{ matrix.continue }}
     permissions:
       contents: read
@@ -108,8 +102,8 @@ jobs:
       # ── Generate CI-specific BuildStream config ───────────────────────
       # The supported Dakota path is a single BuildStream build of the final
       # OCI element followed by a push of the built artifact to the remote CAS.
-      # This keeps the build in the same assembly-only architecture that worked
-      # before the warmup/seed/RE-self-heal workarounds were introduced.
+      # Dependencies are fetched from cache.projectbluefin.io; the runner only
+      # assembles the final OCI image.
       - name: Generate BuildStream CI config
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}

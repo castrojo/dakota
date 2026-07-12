@@ -83,9 +83,8 @@ jobs:
     needs: setup
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # Variant matrix: default and NVIDIA publish in parallel from the shared
-    # BST artifact cache. NVIDIA is `continue-on-error: true` so its failure
-    # does not block default publication.
+    # Both final OCI targets are required. They export only artifacts already
+    # assembled into the CAS by build.yml; this job never compiles sources.
     strategy:
       fail-fast: false
       matrix:
@@ -99,7 +98,7 @@ jobs:
             element: oci/bluefin-nvidia.bst
             image_suffix: '-nvidia'
             sbom_filename: dakota-nvidia.spdx.json
-            continue: true
+            continue: false
     continue-on-error: ${{ matrix.continue }}
     permissions:
       contents: read
@@ -215,11 +214,19 @@ jobs:
   # active, SSH is reachable. No AT-SPI, no behave, no timing sensitivity.
   # See: projectbluefin/dakota#850
   boot-check:
-    name: Boot check — gate
+    name: Boot check — gate (${{ matrix.variant }})
     needs: [setup, publish-image]
     if: needs.publish-image.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            image_suffix: ''
+          - variant: nvidia
+            image_suffix: '-nvidia'
     permissions:
       contents: read
       packages: write
@@ -246,7 +253,7 @@ jobs:
 
       - name: Install image to disk via bootc
         env:
-          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.sha }}
+          IMAGE: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}:${{ needs.setup.outputs.sha }}
         run: |
           set -euo pipefail
           fallocate -l 30G disk.raw
@@ -662,8 +669,8 @@ jobs:
   # Uses skopeo copy for server-side re-tagging: layers never leave the registry,
   # saving the 20–25 min round-trip of the previous podman pull→tag→push approach.
   # --preserve-digests keeps the promoted tag pointing at the signed manifest digest.
-  # NVIDIA is continue-on-error so a failing NVIDIA promote does not
-  # prevent the default :testing from landing.
+  # Both targets must pass export, lint, immutable publication, and boot
+  # verification before either stream tag is advanced.
   promote:
     needs: [setup, publish-image, boot-check]
     if: >-
@@ -679,7 +686,7 @@ jobs:
           - image_suffix: ''
             continue: false
           - image_suffix: '-nvidia'
-            continue: true
+            continue: false
     continue-on-error: ${{ matrix.continue }}
     permissions:
       contents: write

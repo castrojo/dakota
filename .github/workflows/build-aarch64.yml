@@ -33,9 +33,10 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Per-ref isolation. ARM failures never cancel or affect x86_64 concurrency groups.
+# All BuildStream cache writers share one CAS serialization group. ARM remains
+# decoupled from x86 publication and release, but cannot contend for CAS writes.
 concurrency:
-  group: build-aarch64-${{ github.ref }}
+  group: dakota-bst-build-global
   cancel-in-progress: false
 
 jobs:
