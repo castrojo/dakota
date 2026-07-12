@@ -45,6 +45,13 @@ Use when you see:
 
 ## High-Value Failure Patterns
 
+### Composite-action shell structure
+
+When removing a conditional branch from a composite action, remove its matching
+`fi` and validate the resulting shell block before dispatching CI. A shell parse
+failure in configuration generation prevents every downstream build job from
+starting, so it is not a BuildStream failure.
+
 ### 1) Reusable workflow token starvation
 
 If a thin caller uses `jobs.<id>.uses`, the caller's top-level `permissions:`
