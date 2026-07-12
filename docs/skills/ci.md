@@ -293,6 +293,10 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Deleted CI paths are historical evidence only; do not recreate them.
 
+### Enforce strict 50m/25m assembly-only limits to prevent multi-hour compilation drift (2026-07-12)
+
+To keep the GHA pipeline focused on assembly and prevent expensive, slow compiles on runner nodes, always set the `build` job timeout to 50 minutes and the `Build OCI image with BuildStream` step to 25 minutes. If a cache miss occurs, the build must fail fast rather than wasting multi-hour runner budgets trying to compile dependencies.
+
 ### Cache-only assembly prevents source rebuilds (2026-07-12)
 
 The last known-good build run, 28274520794 at commit `3c15c04`, built the
