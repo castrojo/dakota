@@ -134,7 +134,6 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          enable-remote-execution: 'false'
           enable-push: 'false'
 
       - name: Export OCI image from BuildStream
@@ -577,7 +576,6 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          enable-remote-execution: 'false'
           enable-push: 'false'
 
       # Cache the pip wheel for buildstream-sbom across runs.

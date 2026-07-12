@@ -97,7 +97,7 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          enable-remote-execution: 'false'
+
           enable-push: 'true'
 
       - name: Build OCI image with BuildStream (aarch64)

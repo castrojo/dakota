@@ -1,10 +1,7 @@
 name: Generate BuildStream CI config
-description: Write buildstream-ci.conf for CI builds and optional remote execution.
+description: Write BuildStream cache configuration for runner-side assembly.
 
 inputs:
-  enable-remote-execution:
-    description: Enable x86_64 remote execution settings and max-jobs tuning.
-    required: true
   enable-push:
     description: Push artifacts and sources to the remote cache. Set false for fetch-only jobs (e.g. publish).
     required: false
@@ -16,7 +13,6 @@ runs:
     - name: Generate BuildStream CI config
       shell: bash
       env:
-        ENABLE_REMOTE_EXECUTION: ${{ inputs.enable-remote-execution }}
         ENABLE_PUSH: ${{ inputs.enable-push }}
       run: |
         mkdir -p logs
@@ -39,36 +35,11 @@ runs:
         logdir: /src/logs
         BSTCONF
 
-        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
-          # max-jobs does NOT affect cache keys (buildelement.py: "normally
-          # automatically resolved and does not affect the cache key"), so
-          # tuning it preserves the warm CAS. History: max-jobs: 1 made every
-          # big element (llvm, WebKit x2) a 10-30h single-core compile that
-          # mathematically busted the 480m budget (11-day outage). The first
-          # attempt at 16 coincided with a server-wide outage (RST_STREAM
-          # INTERNAL + FetchBlob DEADLINE_EXCEEDED on all pulls, 23:20 UTC
-          # 2026-07-09) — likely OOM: gimple-match.cc compiles eat 4-6 GB
-          # each, and 16 in parallel plus casd cache pressure exceeds the
-          # 128 GB builder. 2 builders x -j8 is a safe 8x speedup over -j1
-          # while staying well under the RAM ceiling.
-          max-jobs: 8
+          max-jobs: 1
         BSTCONFBUILD
-          else
-            cat >> buildstream-ci.conf <<'BSTCONFBUILD'
-        build:
-          retry-failed: True
-        BSTCONFBUILD
-          fi
-        else
-          cat >> buildstream-ci.conf <<'BSTCONFBUILD'
-        build:
-          retry-failed: True
-        BSTCONFBUILD
-        fi
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
           PUSH_FLAG="true"
@@ -130,56 +101,6 @@ runs:
 
         BSTCONFCACHE
 
-          # Top-level storage-service (under cache:) is ONLY for enable-push: true.
-          # Remote execution uses the NESTED storage-service inside remote-execution: block.
-          # NEVER add top-level storage-service when only RE is enabled — it puts casd
-          # in proxy mode and causes gRPC flooding. See docs/skills/ci.md.
-
-          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
-            # IMPORTANT: storage-service is NESTED inside remote-execution, NOT at
-            # the top-level cache: block. This satisfies BST's validation requirement
-            # ("Remote execution requires storage-service") without putting buildbox-casd
-            # into write-through proxy mode (--cas-remote). Top-level cache.storage-service
-            # routes ALL casd operations through the remote and causes gRPC connection drops
-            # after ~3.5 hours. The nested form only affects per-action RE blob transfers
-            # (transient connections), avoiding the sustained stream that killed builds.
-            # See docs/skills/ci.md "Remote Execution with Nested storage-service".
-            cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
-        remote-execution:
-          execution-service:
-            url: https://cache.projectbluefin.io:11002
-            connection-config:
-              keepalive-time: 180
-              retry-limit: 5
-              retry-delay: 1000
-              request-timeout: 180
-            auth:
-              client-key: /src/client.key
-              client-cert: /src/client.crt
-          storage-service:
-            url: https://cache.projectbluefin.io:11002
-            connection-config:
-              keepalive-time: 180
-              retry-limit: 5
-              retry-delay: 1000
-              request-timeout: 180
-            auth:
-              client-key: /src/client.key
-              client-cert: /src/client.crt
-          action-cache-service:
-            url: https://cache.projectbluefin.io:11002
-            connection-config:
-              keepalive-time: 180
-              retry-limit: 5
-              retry-delay: 1000
-              request-timeout: 180
-            auth:
-              client-key: /src/client.key
-              client-cert: /src/client.crt
-        BSTCONFREMOTE
-          fi
-        fi
-
         # Write the unified cache configuration block to avoid duplicate keys.
         cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
 
@@ -204,24 +125,7 @@ runs:
           fi
         fi
 
-        # Preserve the generated config in the uploaded logs artifact so the next run
-        # can confirm the remote-execution block was emitted and not silently skipped.
         cp buildstream-ci.conf logs/buildstream-ci.conf
-
-        if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
-          if [[ -z "${CASD_CLIENT_CERT:-}" ]] || [[ -z "${CASD_CLIENT_KEY:-}" ]]; then
-            echo "::error::remote execution was requested but CASD client credentials are missing"
-            exit 1
-          fi
-          if ! grep -Fq 'remote-execution:' buildstream-ci.conf; then
-            echo "::error::remote-execution block missing from generated buildstream-ci.conf"
-            exit 1
-          fi
-          echo "Remote execution enabled: yes"
-        else
-          echo "Remote execution enabled: no"
-        fi
-
         echo "=== BuildStream CI config ==="
         cat buildstream-ci.conf
 

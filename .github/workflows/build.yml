@@ -119,7 +119,6 @@ jobs:
           # Remote execution is disabled here so we pull cached artifacts from the CAS
           # and avoid the remote execution queue and server capacity bottlenecks.
           # We perform final image assembly locally on the GHA runner.
-          enable-remote-execution: "false"
           enable-push: "false"
 
       # Count the full element graph so the progress script can show %.

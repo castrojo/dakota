@@ -107,7 +107,7 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `build.yml` | `push: testing` for key-busting paths, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` or `merge_group` | Pull-only warmup shards → serialized CAS pushes → BST build → artifacts into remote CAS. Does NOT push to GHCR. |
+| `build.yml` | `push: testing` for key-busting paths, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` or `merge_group` | Cache-only final OCI assembly → artifact cache. Does NOT push to GHCR. |
 | `publish.yml` | `workflow_run` from `build.yml` (branches: testing, next, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
 | `execute-release.yml` | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch` | SHA freshness check (:testing vs :stable). If different: cosign verify → skopeo copy `:testing` → `:stable` → fast-forward main → create GitHub Release. Skips if equal. (Boot-check is in publish.yml before :testing; execute-release trusts the already-boot-checked image.) |
 | ~~`promote-testing-to-main.yml`~~ | DELETED | Was: `push: testing`, schedule Tue 04:00 UTC, manual. |
@@ -157,8 +157,6 @@ is disabled.
 **Push is conditional:** Remote cache configuration is added only when both values
 are present. The protected `testing` workflow requires these credentials; without
 them, do not run a source-build fallback.
-
-**Remote-execution sanity check:** when `enable-remote-execution: 'true'`, the generated `buildstream-ci.conf` must contain a real `remote-execution:` block. The workflow now stores the generated config in the `logs/` artifact and fails fast if the block is missing or the remote cache credentials are absent.
 
 ## ⚠️ Pre-Commit BST Syntax Gate
 
