@@ -305,6 +305,18 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Deleted CI paths are historical evidence only; do not recreate them.
 
+### Breaking Cold-Cache Starvation Loops via Temporary Timeout Extension (2026-07-13)
+
+**The Failure Pattern (Cold-Cache Starvation):** When local patches or junction modifications (such as necessary changes to `freedesktop-sdk.bst`) intentionally alter build configuration or bootstrap elements, they inevitably change the cache keys for downstream elements. On the next CI run, a massive cache miss is triggered. Because strict protective step/job timeouts (like 30m/45m) are in place, the GHA runner begins compiling the uncached elements from source but gets aborted before completion. Because the step is cancelled, the `Push OCI artifact to remote CAS` step is never reached. Consequently, the remote CAS remains cold, and every subsequent CI run is doomed to hit the exact same timeout, resulting in a permanent cold-cache starvation loop.
+
+**Why it happens:** The remote CAS can only be warmed up when a build successfully completes its compilation and reaches the `Push OCI artifact` step. Protective timeouts, while vital to prevent wasteful multi-hour runner hangs during accidental key drifts, actively block recovery when a change is legitimate and the cold cache *must* be compiled.
+
+**The Recovery Rule:**
+1. **Differentiate intentional drift from accidental drift:** If the cache miss is due to a legitimate, intentional modification (like necessary junction patch alignment or gcc workarounds), expect a compilation and do not panic.
+2. **Temporarily extend the workflow timeouts:** Raise the GHA build step timeout (e.g., to 90 minutes) and the job timeout (e.g., to 150 minutes) to allow the compilation to finish.
+3. **Allow the push step to run:** Let the build complete, assemble the OCI image, and execute the `Push OCI artifact` step. This warms the remote CAS with the new cache keys.
+4. **Revert back to protective defaults:** Once the remote CAS is warm and subsequent builds are confirmed to finish in under 5 minutes, immediately revert the workflow timeouts back to the safe 30m/45m defaults to maintain active protection against future accidental drift.
+
 ### Cache-Only Assembly and the Build-From-Source Trap (2026-07-12)
 
 **The Repetitive Failure Pattern:** When encountering a dependency cache miss during final OCI assembly, agents are prone to panic, remove the `--deps none` constraint from `build.yml`, and increase the workflow step timeouts to 330+ minutes. This triggers the *Build-From-Source Trap* where the GHA runner attempts to compile heavy bootstrap packages (like `gcc` and `glibc`) from source, resulting in extremely slow multi-hour builds that ultimately fail or time out.

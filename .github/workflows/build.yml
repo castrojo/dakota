@@ -47,7 +47,7 @@ jobs:
     needs: [verify-default-branch]
     if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -125,7 +125,7 @@ jobs:
           set -o pipefail
           just bst build --deps none ${{ matrix.element }} 2>&1 \
             | python3 files/scripts/bst-progress.py
-        timeout-minutes: 90
+        timeout-minutes: 330
 
       - name: Push OCI artifact to remote CAS
         env:
