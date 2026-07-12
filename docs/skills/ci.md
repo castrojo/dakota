@@ -131,7 +131,7 @@ This is the fast path for stale-image complaints: the image date is usually wron
 - `testing` or `gh-readonly-queue/testing/*` → `:testing`
 - `next` or `gh-readonly-queue/next/*` → `:next`
 
-**PR path:** `validate` + `e2e` (change-detected) — zero remote execution. ~15 min cached, ~30 min cold.
+**PR path:** `validate` + `e2e` (change-detected) — no build assembly.
 
 **e2e change detection:** `e2e` uses a `should-run` job that diffs the PR branch against its base. It runs when `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf` change; otherwise the `e2e` job is skipped. Skipped satisfies the required status check.
 
@@ -141,19 +141,11 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 **ARM build:** `build-aarch64.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch. This serializes ARM after x86 CAS writes complete, preventing contention. The previous Tuesday cron trigger was removed.
 
-**Sharded x86 warmup:** `build.yml` warms the x86 cache in two pull-only shards before the full OCI build. The `webkit` shard builds both WebKit variants serially — `gnome-build-meta.bst:sdk/webkitgtk-6.0.bst` then `gnome-build-meta.bst:sdk/webkit2gtk-4.1.bst` (junction-qualified paths must not carry an `elements/` prefix); each is a ~9400-step build, so serializing them inside one shard avoids co-scheduling two giants on one runner; the `rest` shard builds buildable aggregates (`gnome-build-meta.bst:gnomeos-deps/deps.bst`, `bluefin/deps.bst`, `bluefin-nvidia/deps.bst` — junction elements themselves are not buildable targets). Both use generated `buildstream-ci.conf` with `enable-push: 'false'` AND `enable-remote-execution: 'false'`. RE must be off: an RE build writes action inputs and results through the RE storage-service, making it a CAS writer even with push disabled — two parallel RE shards would violate the one-CAS-writer rule. Local (RE-off) builds are also the only way to guarantee the built artifacts land in the runner-local cache that the push jobs need.
-
-**Serialized warmup pushes:** Do not put a CAS-write concurrency group on the warmup build jobs. GitHub Actions job-level concurrency holds the group for the whole job, which would serialize the expensive pull-only builds. Instead, warmup build jobs tar `~/.cache/buildstream` (excluding `buildtrees` and `logs`) and upload it as a same-run workflow artifact (`retention-days: 1`, `if-no-files-found: error`, `compression-level: 0` since CAS blobs are already compressed); follow-up `warmup-push-shards` jobs download and untar it, then run `just warmup-shard-push <shard>` with `strategy.max-parallel: 1`. That serializes only the short `bst artifact push --deps run` phase while preserving build overlap. Do NOT use `actions/cache` as the build-to-push transport: the 10 GB repo LRU can evict entries, save failures are silent warnings, and `restore-keys` fallback can restore a stale cache — all of which degrade to "push found an empty/stale local cache" with green CI. The push recipe additionally greps its log for `Pushed artifact` / `already has artifact` evidence and fails on zero matches. Workflow-level `dakota-bst-build-global` concurrency prevents overlapping workflow runs from writing to the CAS at the same time; because GitHub keeps at most one pending run per group, rapid pushes to `testing` have last-write-wins semantics — only the newest queued run builds. Accepted by design; the daily schedule is the catch-up.
-
-**Warmup L1 cache:** x86 warmup build jobs additionally save `~/.cache/buildstream` with `actions/cache` (excluding `buildtrees` and `logs`) as a best-effort warm-start for FUTURE runs only — never as the intra-run transport. Keys include the branch, shard, key-input hash (`elements/freedesktop-sdk.bst`, `elements/gnome-build-meta.bst`, `patches/**`, `project.conf`, `include/**`), `github.run_id`, and `github.run_attempt`; restore keys fall back by the same hash and then by shard.
-
-**Warmup triggers:** `build.yml` keeps the daily 13:00 UTC schedule and manual dispatch, and also triggers on `push` to `testing` only for key-busting paths: `elements/**`, `patches/**`, `project.conf`, and `include/**`. Do not broaden this to docs-only paths; warmup should run when the BuildStream graph or patch inputs can invalidate remote-cache keys.
-
-**Warmup progress reporting:** `just warmup` and `just warmup-shard` count `bst show --deps all --format '%{state}'` and append cached/buildable/waiting/failed rows to `$GITHUB_STEP_SUMMARY`. Strip ANSI color codes before counting (`sed 's/\x1b\[[0-9;]*m//g'`). `%{state}` reflects the runner-local cache, so the percentage measures what this runner can stage without pulling.
-
 ## Remote Cache Architecture
 
-`cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
+`cache.projectbluefin.io:11002` is the authenticated artifact and source cache
+for final OCI assembly. The GitHub runner performs the assembly; remote execution
+is disabled.
 
 ### mTLS Authentication
 
@@ -162,7 +154,9 @@ This is the fast path for stale-image complaints: the image date is usually wron
 | `CASD_CLIENT_CERT` | Repository **variable** | PEM-encoded client certificate (public) |
 | `CASD_CLIENT_KEY` | Repository **secret** | PEM-encoded private key |
 
-**Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
+**Push is conditional:** Remote cache configuration is added only when both values
+are present. The protected `testing` workflow requires these credentials; without
+them, do not run a source-build fallback.
 
 **Remote-execution sanity check:** when `enable-remote-execution: 'true'`, the generated `buildstream-ci.conf` must contain a real `remote-execution:` block. The workflow now stores the generated config in the `logs/` artifact and fails fast if the block is missing or the remote cache credentials are absent.
 
