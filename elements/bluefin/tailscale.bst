@@ -4,11 +4,11 @@ sources:
 - kind: tar
   (?):
   - arch == "x86_64":
-      url: tailscale_pkgs:tailscale_1.98.8_amd64.tgz
-      ref: 3a55b5900dd7e11e09b6c74d1e46d223d549dfbefbdc1f044a8ab7bdbafb933c
+      url: tailscale_pkgs:tailscale_1.98.3_amd64.tgz
+      ref: a53002b0052317179d3fcace99dcd94c87b634dbb453da06b7374a4420c8160a
   - arch == "aarch64":
-      url: tailscale_pkgs:tailscale_1.98.8_arm64.tgz
-      ref: 53eb3ce89d062fd34e393d24a6c8ec08c769fede8eb77fe9c6e347ad4ae00f84
+      url: tailscale_pkgs:tailscale_1.98.3_arm64.tgz
+      ref: d26ce4a1a259621fc76d16c7baf3f3a4252f356dfa9d9769484782f766ca1b7f
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/runtime-minimal.bst

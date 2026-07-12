@@ -1,16 +1,12 @@
-# ⚠️ WARNING: DO NOT ADD LOCAL PATCHES OR PATCH QUEUES TO THIS JUNCTION.
-# Applying any patch to this junction alters its source hash and invalidates
-# the cache keys for ALL downstream elements imported from it (including WebKit).
-# This completely destroys cache reuse against gbm.gnome.org:11003 and forces
-# hours of compile time from scratch. Keep this junction 100% clean of patches.
-
 kind: junction
 
 sources:
 - kind: git_repo
   url: gnome:gnome-build-meta.git
   track: gnome-50
-  ref: 50.2-4-g01ed76232baf1063f0ef3ca1f3b2c16f30e82f35
+  ref: 50.2-2-gc74f62321985630c7c44390c90f9256262d5731c
+- kind: patch_queue
+  path: patches/gnome-build-meta
 
 config:
   options:
@@ -26,9 +22,8 @@ config:
     # Replace the element so the OCI image doesn't have any apps
     core/meta-gnome-core-apps.bst: core/meta-gnome-core-apps.bst
 
-    # Permanent policy: dakota always ships pure upstream bootc (bootc-dev/bootc,
-    # tracked via auto/track-bootc), never gnome-build-meta's pinned version.
-    # Do not remove this override even if gnome-50 catches up.
+    # Override to track bootc ahead of gnome-build-meta upstream (gnome-50 is at v1.12.1)
+    # Remove when gnome-50 ships bootc >= v1.15.1 and files are identical
     gnomeos-deps/bootc.bst: gnomeos-deps/bootc.bst
 
     gnomeos-deps/plymouth-gnome-theme.bst: bluefin/plymouth-bluefin-theme.bst

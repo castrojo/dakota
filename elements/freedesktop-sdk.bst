@@ -1,18 +1,10 @@
-# ⚠️ WARNING: DO NOT ADD LOCAL PATCHES OR PATCH QUEUES TO THIS JUNCTION unless they
-# stay 100% byte-identical to those pinned inside gnome-build-meta.
-# Any local drift or unaligned patches to freedesktop-sdk invalidates cache keys for
-# ALL downstream elements (including WebKit), destroying cache reuse from gbm.gnome.org:11003.
-
 kind: junction
 
 sources:
 - kind: git_repo
   url: gitlab:freedesktop-sdk/freedesktop-sdk.git
   track: freedesktop-sdk-25.08*
-  ref: freedesktop-sdk-25.08.14-0-g57149392fe26548b0e7c50a2e171e3aac005a412
-# This patch queue must stay byte-identical to gnome-build-meta's
-# patches/freedesktop-sdk/ at the pinned gbm ref — cache reuse against
-# gbm.gnome.org depends on it. See docs/skills/bst-overrides.md.
+  ref: freedesktop-sdk-25.08.13-0-g8446990f0a549bb1f3ceb654af64fc176b274488
 - kind: patch_queue
   path: patches/freedesktop-sdk
 
@@ -54,14 +46,6 @@ config:
     components/pygobject.bst: gnome-build-meta.bst:sdk/pygobject.bst
     components/vala.bst: gnome-build-meta.bst:sdk/vala.bst
     components/libsecret.bst: gnome-build-meta.bst:sdk/libsecret.bst
-
-    # frei0r is removed from Dakota entirely: it fails to compile under
-    # GCC 15 (SSE intrinsic type errors, dyne/frei0r issues 228/239) and
-    # no upstream artifact cache carries our key. gst-plugins-bad bundles
-    # its own frei0r.h, so its frei0r wrapper still builds; with no
-    # frei0r plugins on disk the wrapper simply loads nothing at runtime.
-    # Exit condition: none — desktop image does not need frei0r effects.
-    components/frei0r.bst: bluefin/void.bst
 
     # While freedesktop-sdk provides a zenity element, it's the
     # gtk3 version which we don't want, and we also override it

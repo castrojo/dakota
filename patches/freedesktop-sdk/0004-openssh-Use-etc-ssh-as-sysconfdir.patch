@@ -1,7 +1,7 @@
-From cb7355848d5632c17355078ae33508f7766409f8 Mon Sep 17 00:00:00 2001
+From d7c30b13796a328049706d62241dfbf2edd80aa2 Mon Sep 17 00:00:00 2001
 From: Valentin David <me@valentindavid.com>
 Date: Sun, 26 Oct 2025 11:03:32 +0100
-Subject: [PATCH 3/7] openssh: Use /etc/ssh as sysconfdir
+Subject: [PATCH 04/14] openssh: Use /etc/ssh as sysconfdir
 
 All other distros use that. And there are expectations from systemd
 for it to be configured so.
@@ -20,11 +20,11 @@ index a7c0361f3..2ccc03748 100644
  - bootstrap/libxcrypt.bst
  - public-stacks/runtime-minimal.bst
  - components/systemd-libs.bst # libfido2 depends on udev
- 
+
  runtime-depends:
  - components/grep.bst
  - components/sed.bst
- 
+
  variables:
 +  sysconfdir: '/etc/ssh'
    arch_options: ''
@@ -43,7 +43,7 @@ index a7c0361f3..2ccc03748 100644
 +    --with-pid-dir=/run
      --with-security-key-builtin
      %{arch_options}
- 
+
  config:
    install-commands:
      (>):
@@ -51,6 +51,5 @@ index a7c0361f3..2ccc03748 100644
        sed 's/#UsePAM.*/UsePAM yes/' -i "%{install-root}%{sysconfdir}/sshd_config"
        install -Dm755 contrib/ssh-copy-id -t "%{install-root}%{bindir}"
        install -Dm644 contrib/ssh-copy-id.1 -t "%{install-root}%{mandir}/man1"
--- 
+--
 2.54.0
-
