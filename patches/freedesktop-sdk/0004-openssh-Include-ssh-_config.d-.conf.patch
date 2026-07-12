@@ -1,7 +1,7 @@
-From ab20c7db5843db19b8236cae39daeb921461906d Mon Sep 17 00:00:00 2001
+From deba018b7180e08cb01685e422b7b4fc668d5ef4 Mon Sep 17 00:00:00 2001
 From: Valentin David <me@valentindavid.com>
 Date: Sun, 26 Oct 2025 16:06:02 +0100
-Subject: [PATCH 05/14] openssh: Include ssh*_config.d/*.conf
+Subject: [PATCH 4/7] openssh: Include ssh*_config.d/*.conf
 
 Most distributions include system-wide configuration fragments from
 and some software expect it: systemd, libvirt.
@@ -22,7 +22,7 @@ index 2ccc03748..d48247cd1 100644
      --with-pid-dir=/run
      --with-security-key-builtin
      %{arch_options}
-
+ 
  config:
 +  configure-commands:
 +    (<):
@@ -44,9 +44,10 @@ index 2ccc03748..d48247cd1 100644
        sed 's/#UsePAM.*/UsePAM yes/' -i "%{install-root}%{sysconfdir}/sshd_config"
        install -Dm755 contrib/ssh-copy-id -t "%{install-root}%{bindir}"
        install -Dm644 contrib/ssh-copy-id.1 -t "%{install-root}%{mandir}/man1"
-
+ 
  public:
    bst:
      split-rules:
---
+-- 
 2.54.0
+
