@@ -90,6 +90,13 @@ jobs:
           enable-remote-execution: "false"
           enable-push: "false"
 
+      - name: Pull prebuilt artifacts from remote CAS
+        env:
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+        run: |
+          just bst artifact pull --deps all ${{ matrix.element }}
+        timeout-minutes: 15
+
       - name: Count elements for progress tracking
         id: count
         env:

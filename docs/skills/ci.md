@@ -313,8 +313,9 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 **The Self-Improvement Fix:** 
 1. **Never build from source:** Always keep strict `--deps none` in `just bst build --deps none ${{ matrix.element }}`.
-2. **Keep timeouts tight:** Enforce a strict 30-minute step timeout and 45-minute job timeout. If a cache miss occurs, the build must fail fast and loudly.
-3. **Align, do not compile:** When a build fails due to a cache miss, the only correct fix is to align the elements, patches, and files to the exact `d10b2b1057b7cfab87d9f10340f7002b81c2bffd` baseline to restore 100% warm-cache keys. Do not touch workflow timeouts or dependency flags.
+2. **Pre-warm cold caches to prevent network timeout stalls:** Running `just bst artifact pull --deps all ${{ matrix.element }}` right before `bst build` pre-pulls all prebuilt artifacts from the remote CAS into the cold local GHA runner cache in ~2 minutes, preventing network-bound source-fetching stalls during subsequent sandbox staging.
+3. **Keep timeouts tight:** Enforce a strict 30-minute step timeout and 45-minute job timeout. If a cache miss occurs, the build must fail fast and loudly.
+4. **Align, do not compile:** When a build fails due to a cache miss, the only correct fix is to align the elements, patches, and files to the exact `d10b2b1057b7cfab87d9f10340f7002b81c2bffd` baseline to restore 100% warm-cache keys. Do not touch workflow timeouts or dependency flags.
 
 ### Runner cache configuration must preserve upstream fallbacks (2026-07-11)
 
