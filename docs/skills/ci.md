@@ -299,19 +299,19 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 ## Lessons Learned
 
-> **Note:** Lessons are ordered newest-first. Entries before 2026-06-23 may reference workflows that have since been deleted (`promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`). Those workflows were deleted in the OCI-native redesign (issue 1073). Do not recreate them.
+> **Note:** Lessons are ordered newest-first. Deleted CI paths are historical evidence only; do not recreate them.
 
-### skip-warmup dispatch input for publish-critical runs (2026-07-09)
+### Cache-only assembly prevents source rebuilds (2026-07-12)
 
-During the 11-day `:testing` outage, the publish path sat behind a warmup shard that was known-dead for 3 hours (junction-target bug + pre-fix job-level timeout discarding its work) because the `build` job is ordered after `warmup-push-shards`. For outage recovery, dispatch with `skip-warmup: true` (`gh workflow run build.yml --ref testing -f skip-warmup=true`) — both warmup jobs are skipped and `build` starts immediately (`if: (!cancelled())` treats skipped needs as passable). Use bare `inputs.skip-warmup` in `if:` conditions, never `${{ }}`-wrapped (startup_failure on non-dispatch triggers, see pattern 15b). Default false: scheduled/push runs keep seeding the CAS.
-
-### Shard timeout must be step-level or all compiled work is lost (2026-07-09)
-
-`jobs.<id>.timeout-minutes` cancels the whole job: remaining steps are skipped and the actions/cache post-save does not run, so a WebKit shard that times out after ~3h of compiling discards everything — the exact non-monotonic failure the shard design exists to prevent. The documented pattern (GH Actions workflow-syntax + expressions docs) is a step-level `timeout-minutes` on the build step (only the step is terminated; the job continues) with `if: ${{ !cancelled() }}` on the pack/upload handoff steps so partial progress is always packed and pushed. Budget: 150m build step + 30m handoff inside the 180m job backstop. GH docs recommend `!cancelled()` over `always()` for anything that could itself hang.
-
-### Junction elements are not buildable or pushable bst targets (2026-07-09)
-
-`bst build freedesktop-sdk.bst` fails with `Cannot build junction elements` — junctions define subprojects, they produce no artifact. The rest warmup shard shipped with `freedesktop-sdk.bst` and `gnome-build-meta.bst` as tier targets and failed on its first real run (run 29008317286). Warm junction-provided layers through buildable aggregates instead: `gnome-build-meta.bst:gnomeos-deps/deps.bst` transitively covers the entire fdsdk + gbm platform graph, then `bluefin/deps.bst` and `bluefin-nvidia/deps.bst` add the dakota layer. The same applies to `bst artifact push` target lists — keep `warmup-shard` and `warmup-shard-push` target arrays mirrored. Verify any new tier target with `just bst show --deps none <target>` before pushing.
+The last known-good build run, 28274520794 at commit `3c15c04`, built the
+default image in 11 minutes and NVIDIA in 12 minutes. If BuildStream processes
+dependencies during final OCI assembly, a missing upstream artifact falls through
+to source compilation; the failed run 29177123837 rebuilt
+`freedesktop-sdk/bootstrap-glibc` for 330 minutes. Use
+`bst build --deps none` for `oci/bluefin.bst` and
+`oci/bluefin-nvidia.bst`: cached dependencies are fetched from
+`cache.projectbluefin.io:11002` and its read-only upstream fallbacks, while a
+miss fails rather than compiling.
 
 ### Publishing is the deliverable — local full-image builds are never a push gate (2026-07-09)
 
@@ -321,70 +321,9 @@ An agent session extended a 10-day `:testing` outage to 11 days by gating the pu
 
 The pre-flight rule (cancel all active runs before any CI action) has a failure mode: cancelling the in-flight daily build and then NOT completing the push — for example because the turn ended while a cancellation was still draining. Net effect is strictly worse than doing nothing: the existing build dies and no replacement is queued. Cancel → verify field clear → push/dispatch must complete in one uninterrupted sequence. If you cannot finish the push in the same working block, do not start cancelling.
 
-### Warmup shards must be best-effort; hard needs: gates kill the publish path (2026-07-09)
-
-Downstream jobs (`warmup-push-shards`, `build`) use `if: (!cancelled()) && ...` so a timed-out or failed warmup shard never blocks the full build. `needs:` is retained purely to order CAS writers within the run. Without this, a single 180-minute shard timeout silently converts into a full missed publish.
-
 ### The graph has 100% cache alignment — WebKit compilation is eliminated (2026-07-11)
 
 Applying any patches to the `gnome-build-meta` junction (e.g., local patch queues) invalidates cache keys for downstream elements and forces hours of WebKit compilation from source. In July 2026, the local patch queue was completely removed from `elements/gnome-build-meta.bst` (commit `dbb9f6d6`). This restores 100% cache alignment with `gbm.gnome.org:11003`. WebKit and other platform elements are now fetched as cached artifacts. DO NOT introduce any local patches to gnome-build-meta or freedesktop-sdk junctions, as this forces WebKit recompilation. DO NOT run any WebKit compilation or seed shards in CI workflows, as they are completely unnecessary and slow down the publish pipeline.
-
-### Remote BST builds can exceed the 6-hour GHA budget on cold schedules (2026-07-06)
-
-A cold `build.yml` run can keep `Build OCI image with BuildStream` alive past the old 360-minute budget without surfacing a build-element failure. In that case the workflow timeout budget itself is the constraint, not a poisoned CAS blob or an element syntax error. For remote BST builds, give the job and the build step 480 minutes of headroom and inspect the uploaded logs if the run still stalls after that. This was confirmed by the 2026-07-06 run that reached roughly 6 hours while the element graph was still advancing.
-
-A second lesson from the 2026-07-06 investigation: read-only artifact/source-cache pulls alone are not enough to keep GHA builds fast. The workflow must also enable remote execution in the generated BuildStream config so expensive elements are dispatched to the remote CAS server instead of being compiled locally on the runner. The current workflow uses the nested `remote-execution.storage-service` form the action already documents, which avoids the earlier gRPC proxy-mode failure.
-
-### Remote execution and cache are separate; do not toggle blindly (2026-07-06)
-
-The investigation showed that cache access and remote execution are distinct layers in BuildStream:
-
-- `artifacts:` / `source-caches:` make the runner talk to `cache.projectbluefin.io:11002` for pulls and pushes.
-- `remote-execution:` is what tells BuildStream to dispatch expensive build actions to the remote CAS worker pool instead of letting the runner do the work locally.
-
-The earlier loop of re-enabling and disabling the feature was not a proof of correctness by itself. A workflow change is only a real fix if it changes the generated config in a way that can be observed in the logs. The working evidence for this change is:
-
-1. `build.yml` passes `enable-remote-execution: 'true'` to the config generator.
-2. The generated `buildstream-ci.conf` contains a `remote-execution:` block with `execution-service`, `storage-service`, and `action-cache-service`.
-3. The BuildStream logs show remote cache activity (`Pulled artifact`, `Pulled source`, `does not have artifact/source cached`) while the build is actively progressing, not merely sitting on the runner.
-
-If a new run is still slow or still times out, do not assume the next change should be another timeout or toggle tweak. The next step is to inspect the first concrete bottleneck from the live logs and the generated config, then change the smallest thing that addresses that verified bottleneck.
-
-Next-run checklist for any future remote-build investigation:
-
-```bash
-# 1. Confirm the workflow still enables RE
-#    (build.yml)
-grep -n "enable-remote-execution" .github/workflows/build.yml
-
-# 2. Confirm the generated config includes a remote-execution block
-#    (from the config-generation step output or uploaded logs)
-grep -n "remote-execution:" buildstream-ci.conf
-
-# 3. Check the build logs for remote cache activity and waiting states
-#    (uploaded buildstream logs artifact)
-grep -E "Pulled artifact|Pulled source|does not have artifact|does not have source|Waiting for the remote build to complete" logs/*/*.log | tail -50
-```
-
-If the logs still show the build stalling without a real remote-execution path, treat that as a configuration problem. If the logs show remote execution but the build still runs long, inspect the active element set and the upstream nightly delta instead of editing workflow knobs again.
-
-### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
-
-The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second
-step inside the same job would serialise the two architectures and block x86 on
-ARM failures. The correct pattern:
-
-- Add a **second top-level job** (`warm-cache-aarch64`) — no `needs:` dependency.
-- Use a **separate `concurrency.group`** (`dakota-cache-warm-aarch64`) so the two
-  jobs never queue behind each other.
-- Set `continue-on-error: true` on the ARM job — ARM failures never block x86.
-- Use `BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64`
-  — the `--config` flag is required for the generated BST CI config (and the
-  remote CAS push) to actually take effect.
-- Use `enable-remote-execution: false`, `enable-push: true` — no RE service for
-  ARM yet, but artifacts should still be pushed to the remote CAS.
-- Use a distinct BST workspace cache key: `bst-warm-aarch64-${{ hashFiles(...) }}`
-  — sharing a key with x86 will cause cross-arch cache pollution.
 
 ### crun 1.21 (resolute) breaks just sbom on GHA — use --runtime runc (2026-06-08)
 
@@ -2532,45 +2471,7 @@ line chunks and build-phase output is sparse — hours of flat line-count is nor
    The helper polls `gh run view` for the build run, waits for it to finish
    successfully, and then resolves the follow-on `publish.yml` run by matching the
    build run's `headSha`. If the build or publish run fails, it exits non-zero so
-   the terminal can be used in automation or local triage. The fallback
-   `publish-local.yml` path remains for runner-only recovery when the remote CAS/RE
-   service is unavailable.
-
-### Runner-only publish fallback: publish-local.yml (2026-07-11)
-
-When the remote execution / CAS backend (cache.projectbluefin.io) is down,
-build.yml cannot publish: the full-build job hard-codes RE=true, BST hangs
-silently waiting on the dead scheduler, and the 65-min stall watchdog kills
-it (exit 137, three attempts, both variants). Signature: `Cached elements
-after warm: 0` progress stalls plus repeated 137s in "Build Bluefin dakota".
-
-`publish-local.yml` (workflow_dispatch) is the fallback. It builds the whole
-graph on GitHub-hosted runners with RE and push disabled, then exports,
-lints, boot-checks, pushes :SHA, and promotes :testing — no cluster
-involvement anywhere.
-
-Key mechanics:
-- A single seed job (`just warmup-shard rest`) cold-starts the non-WebKit graph, then up to six sequential "link" jobs each resume
-  `bst build oci/bluefin.bst` from the newest cache artifact.
-- Cache transport is a zstd tar of ~/.cache/buildstream carried between jobs
-  as workflow artifacts. Artifact names are IMMUTABLE within a run — link
-  uploads must use unique names (bst-cache-link-<run>-<n>); consumers pick
-  the newest by created_at across the name prefix via the artifacts API, so
-  a re-dispatch resumes from a previous run's artifacts.
-- The zip download is streamed through Python zipfile into `tar --zstd -x`
-  to avoid double disk usage; both the download and the pack output live
-  inside the spanned btrfs CAS volume (excluded from the tar).
-- Build steps never fail the job: completion is signalled by a per-SHA
-  `bst-done-<sha>` marker artifact. Later links short-circuit on it and the
-  publish job gates on it, so partial progress is always preserved and a
-  failed run is continued by simply dispatching again.
-- Joins the `dakota-bst-build-global` concurrency group — still one BST
-  build at a time.
-
-Caveat: images published this way fail execute-release.yml's cosign
-identity check (anchored to publish.yml), so :testing from this path cannot
-promote to :stable until a normal publish.yml run succeeds after the RE
-backend returns.
+   the terminal can be used in automation or local triage.
 
 ### Overriding cache servers in buildstream-ci.conf wipes upstream caches (2026-07-11)
 
@@ -2579,4 +2480,3 @@ When generating a custom `buildstream-ci.conf` in CI and specifying custom `arti
 **The Failure Pattern:** On core junction bumps (e.g. freedesktop-sdk or gnome-build-meta updates), if remote execution is disabled and the generated config overrides the server list to contain only the projectbluefin CAS, there is a cache miss on almost the entire universe. Because the upstream read-only caches (`gbm.gnome.org:11003` and `cache.freedesktop-sdk.io:11001`) are absent from the overridden configuration, the local runner is forced to download the sources and compile the entire SDK/GNOME desktop from source. On 2-core GHA runners, this causes multi-hour compiles that trigger OOM (exit code 137) or timeouts.
 
 **The Fix:** Always include the upstream read-only caches as fallback servers in any overridden `artifacts` and `source-caches` blocks within the generated `buildstream-ci.conf`. This preserves 100% cache alignment with upstream SDK/GNOME builds and allows the local runner to pull pre-built SDK/GNOME artifacts instantly, ensuring that only the lightweight, project-specific elements are assembled locally.
-

@@ -66,7 +66,7 @@ jobs:
     needs: [verify-default-branch]
     if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 45
     # Variants build serially so the final OCI artifact pushes never overlap.
     strategy:
       fail-fast: false
@@ -152,9 +152,9 @@ jobs:
           ELEMENT_TOTAL: ${{ steps.count.outputs.total }}
         run: |
           set -o pipefail
-          just bst build ${{ matrix.element }} 2>&1 \
+          just bst build --deps none ${{ matrix.element }} 2>&1 \
             | python3 files/scripts/bst-progress.py
-        timeout-minutes: 330
+        timeout-minutes: 30
 
       # Push the built OCI artifact to remote CAS so publish.yml can export it.
       - name: Push OCI artifact to remote CAS
@@ -162,6 +162,7 @@ jobs:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
         run: |
           just bst artifact push --deps run ${{ matrix.element }}
+        timeout-minutes: 15
 
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
