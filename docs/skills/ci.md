@@ -305,6 +305,17 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Deleted CI paths are historical evidence only; do not recreate them.
 
+### Cache-Only Assembly and the Build-From-Source Trap (2026-07-12)
+
+**The Repetitive Failure Pattern:** When encountering a dependency cache miss during final OCI assembly, agents are prone to panic, remove the `--deps none` constraint from `build.yml`, and increase the workflow step timeouts to 330+ minutes. This triggers the *Build-From-Source Trap* where the GHA runner attempts to compile heavy bootstrap packages (like `gcc` and `glibc`) from source, resulting in extremely slow multi-hour builds that ultimately fail or time out.
+
+**Why it happens:** The cache miss is typically caused by local element, patch, or junction modifications that deviate from the known-good cache keys stored on the remote CAS. Allowing source compilation or raising timeouts merely papers over the key drift.
+
+**The Self-Improvement Fix:** 
+1. **Never build from source:** Always keep strict `--deps none` in `just bst build --deps none ${{ matrix.element }}`.
+2. **Keep timeouts tight:** Enforce a strict 30-minute step timeout and 45-minute job timeout. If a cache miss occurs, the build must fail fast and loudly.
+3. **Align, do not compile:** When a build fails due to a cache miss, the only correct fix is to align the elements, patches, and files to the exact `d10b2b1057b7cfab87d9f10340f7002b81c2bffd` baseline to restore 100% warm-cache keys. Do not touch workflow timeouts or dependency flags.
+
 ### Runner cache configuration must preserve upstream fallbacks (2026-07-11)
 
 The normal path is one serial runner-side BuildStream assembly for each top-level
