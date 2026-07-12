@@ -16,6 +16,20 @@ metadata:
 This is the **load-first** CI skill. Do not dump the whole CI history into context up front.
 Load this file, identify the failure class, then load only the next skill you need.
 
+## Dakota build model
+
+The supported Dakota path is a single BuildStream build per target executed on the GitHub runner, using the remote cache at `cache.projectbluefin.io:11002` for artifacts and source caches.
+The build workflow should run the BuildStream build on the runner, push the built artifact to the remote CAS, and let the publish workflow export, lint, and tag the resulting images.
+For Dakota, that means:
+- one build job per target (`dakota` and `dakota-nvidia`)
+- BuildStream config that uses the remote cache for artifacts/source caches while the runner performs the actual build
+- no seed/warmup shards and no VM boot-check path in the default workflow
+- verification via `just lint` and the existing image export/publish path before `:testing` is moved
+
+When the workflow uses a composite action to generate BuildStream config, write the config files into `${GITHUB_WORKSPACE}` (the checkout root) rather than the action directory. The `just bst` wrapper mounts the checkout at `/src` inside the bst2 container, so the files must be visible there as `/src/buildstream-ci.conf` and `/src/buildstream-push.conf`.
+
+For runner-based Dakota builds, the generated config must explicitly contain `build.max-jobs: 1`. If that cap is missing, the job can drift into a long, resource-heavy run that looks like a hung BuildStream step. Treat a missing `max-jobs: 1` in the generated config as a workflow bug and fail fast rather than letting the build start.
+
 ## When to Use
 
 Use this skill when the task mentions:
@@ -107,9 +121,9 @@ This is the fast path for stale-image complaints: the image date is usually wron
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `build.yml` | `push: testing` for key-busting paths, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` or `merge_group` | Cache-only final OCI assembly → artifact cache. Does NOT push to GHCR. |
-| `publish.yml` | `workflow_run` from `build.yml` (branches: testing, next, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
-| `execute-release.yml` | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch` | SHA freshness check (:testing vs :stable). If different: cosign verify → skopeo copy `:testing` → `:stable` → fast-forward main → create GitHub Release. Skips if equal. (Boot-check is in publish.yml before :testing; execute-release trusts the already-boot-checked image.) |
+| `build.yml` | `push: testing` for key-busting paths, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` or `merge_group` | Run a single BuildStream assembly build per target (`oci/bluefin.bst` and `oci/bluefin-nvidia.bst`), push the resulting artifacts to `cache.projectbluefin.io`, and upload logs. Does not push to GHCR. |
+| `publish.yml` | `workflow_run` from `build.yml` (branches: testing, next, + their gh-readonly-queue/* paths) | Fetch the remote-CAS artifact, export to OCI, run `just lint`, push `:$sha`, sign/attest, and promote `:testing`/`:next` tags. No build happens here. |
+| `execute-release.yml` | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch` | SHA freshness check (:testing vs :stable). If different: cosign verify → skopeo copy `:testing` → `:stable` → fast-forward main → create GitHub Release. Skips if equal. |
 | ~~`promote-testing-to-main.yml`~~ | DELETED | Was: `push: testing`, schedule Tue 04:00 UTC, manual. |
 | ~~`pr-release-gate.yml`~~ | DELETED | Was: `pull_request` to `main`. |
 | ~~`sync-main-to-testing.yml`~~ | DELETED | Was: `push: main`. |
@@ -131,21 +145,19 @@ This is the fast path for stale-image complaints: the image date is usually wron
 - `testing` or `gh-readonly-queue/testing/*` → `:testing`
 - `next` or `gh-readonly-queue/next/*` → `:next`
 
-**PR path:** `validate` + `e2e` (change-detected) — no build assembly.
+**PR path:** `validate` + `e2e` (change-detected) — no extra BuildStream warmup path. The default Dakota pipeline stays on a single assembly pass per target.
 
 **e2e change detection:** `e2e` uses a `should-run` job that diffs the PR branch against its base. It runs when `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf` change; otherwise the `e2e` job is skipped. Skipped satisfies the required status check.
 
 **Merge queue path:** `build` is intentionally excluded from `merge_group`; queued PRs rely on the required validation/e2e checks, and the post-merge push to `testing` starts the real BuildStream path when key-busting files changed.
 
-**Daily build schedule:** `build.yml` fires at 13:00 UTC daily (after `nightly-next-build` completes). This keeps CAS warm and ensures a fresh `:testing` tag each day even without a code push. `cache-warm.yml` was deleted — the daily build replaces it.
+**Daily build schedule:** `build.yml` fires at 13:00 UTC daily (after `nightly-next-build` completes). This keeps the remote CAS warm and ensures a fresh `:testing` tag even without a code push. `cache-warm.yml` was deleted — the daily build replaces it.
 
-**ARM build:** `build-aarch64.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch. This serializes ARM after x86 CAS writes complete, preventing contention. The previous Tuesday cron trigger was removed.
+**Assembly-only model:** `build.yml` performs one final BST assembly per target and writes the artifact to the remote CAS. The default workflow does not run warmup shards, seed jobs, remote execution, or a VM boot-check path.
 
 ## Remote Cache Architecture
 
-`cache.projectbluefin.io:11002` is the authenticated artifact and source cache
-for final OCI assembly. The GitHub runner performs the assembly; remote execution
-is disabled.
+`cache.projectbluefin.io:11002` is the Dakota remote cache endpoint for artifact cache, source cache, and CAS storage. The default workflow uses it for final assembly and export; remote execution is explicitly disabled in the CI config.
 
 ### mTLS Authentication
 
@@ -154,9 +166,9 @@ is disabled.
 | `CASD_CLIENT_CERT` | Repository **variable** | PEM-encoded client certificate (public) |
 | `CASD_CLIENT_KEY` | Repository **secret** | PEM-encoded private key |
 
-**Push is conditional:** Remote cache configuration is added only when both values
-are present. The protected `testing` workflow requires these credentials; without
-them, do not run a source-build fallback.
+**Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
+
+**Remote-cache sanity check:** the generated `buildstream-ci.conf` must include the `artifacts:` and `source-caches:` sections for `cache.projectbluefin.io:11002`, and the workflow stores the generated config in the `logs/` artifact for inspection. The default Dakota workflow intentionally leaves remote execution disabled so the GitHub runner performs the BuildStream build locally while the remote cache supplies artifact and source cache data.
 
 ## ⚠️ Pre-Commit BST Syntax Gate
 
@@ -293,35 +305,17 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 > **Note:** Lessons are ordered newest-first. Deleted CI paths are historical evidence only; do not recreate them.
 
-### Enforce strict 50m/25m assembly-only limits to prevent multi-hour compilation drift (2026-07-12)
+### Runner cache configuration must preserve upstream fallbacks (2026-07-11)
 
-To keep the GHA pipeline focused on assembly and prevent expensive, slow compiles on runner nodes, always set the `build` job timeout to 50 minutes and the `Build OCI image with BuildStream` step to 25 minutes. If a cache miss occurs, the build must fail fast rather than wasting multi-hour runner budgets trying to compile dependencies.
-
-### Cache-only assembly prevents source rebuilds (2026-07-12)
-
-The last known-good build run, 28274520794 at commit `3c15c04`, built the
-default image in 11 minutes and NVIDIA in 12 minutes. If BuildStream processes
-dependencies during final OCI assembly, a missing upstream artifact falls through
-to source compilation; the failed run 29177123837 rebuilt
-`freedesktop-sdk/bootstrap-glibc` for 330 minutes. Use
-`bst build --deps none` for `oci/bluefin.bst` and
-`oci/bluefin-nvidia.bst`: cached dependencies are fetched from
-`cache.projectbluefin.io:11002` and its read-only upstream fallbacks, while a
-miss fails rather than compiling.
-
-### Paired cache-only targets are required (2026-07-12)
-
-`oci/bluefin.bst` and `oci/bluefin-nvidia.bst` are a paired x86 release
-unit. Both runner-side assembly matrix legs must be required, and both
-immutable images must pass export, `bootc container lint`, and boot checks
-before either `:testing` tag is advanced. The standard testsuite smoke suite
-remains observational in `publish-smoke.yml`, where it runs for both
-SHA-pinned images after a successful paired publish; do not move it into the
-stable-promotion gate.
-
-All BuildStream workflows that write to the shared CAS, including aarch64,
-use `dakota-bst-build-global`. This serializes cache writers without coupling
-ARM failure to the x86 publish/release path.
+The normal path is one serial runner-side BuildStream assembly for each top-level
+OCI element. `cache.projectbluefin.io:11002` is the authenticated writable cache;
+`gbm.gnome.org:11003` and `cache.freedesktop-sdk.io:11001` must remain read-only
+artifact and source-cache fallbacks. Replacing that server list forces a cold SDK
+and GNOME compilation, causing multi-hour runs. The generated files must be
+written under `${GITHUB_WORKSPACE}` because the `just bst` container maps it to
+`/src`. The known-good serial pair completes in about 20 minutes; each assembly
+is capped at 30 minutes with a 15-minute artifact-push tail. Do not recreate seed
+shards, retry chains, or local publish fallbacks.
 
 ### Publishing is the deliverable — local full-image builds are never a push gate (2026-07-09)
 
@@ -334,6 +328,61 @@ The pre-flight rule (cancel all active runs before any CI action) has a failure 
 ### The graph has 100% cache alignment — WebKit compilation is eliminated (2026-07-11)
 
 Applying any patches to the `gnome-build-meta` junction (e.g., local patch queues) invalidates cache keys for downstream elements and forces hours of WebKit compilation from source. In July 2026, the local patch queue was completely removed from `elements/gnome-build-meta.bst` (commit `dbb9f6d6`). This restores 100% cache alignment with `gbm.gnome.org:11003`. WebKit and other platform elements are now fetched as cached artifacts. DO NOT introduce any local patches to gnome-build-meta or freedesktop-sdk junctions, as this forces WebKit recompilation. DO NOT run any WebKit compilation or seed shards in CI workflows, as they are completely unnecessary and slow down the publish pipeline.
+
+### Runner-based BST builds stay on the GitHub runner (2026-07-11)
+
+The supported Dakota path is a single `just bst build ...` invocation on the GitHub runner, with the remote cache providing artifact and source-cache access for the build. This keeps the build on the runner hardware that was previously working while still using `cache.projectbluefin.io:11002` for the cache services the build needs.
+
+The CI config generator must write `buildstream-ci.conf` and `buildstream-push.conf` to `/src/` so the workflow's `BST_FLAGS: --config /src/buildstream-ci.conf` path stays correct. Writing the files into the repository checkout instead of `/src/` breaks the runner-based build path even when the YAML itself is otherwise valid.
+
+For runner-based CI, keep `scheduler.builders: 2` but cap each element build with `build.max-jobs: 1` in the generated config. That preserves the fast runner build model while avoiding memory pressure and hung build steps on the GitHub runner. The current workflow does not rely on a `remote-execution:` block and should not be changed to add one unless a future investigation proves that the runner-only path is no longer sufficient.
+
+### Cache access and local execution are separate; do not toggle blindly (2026-07-11)
+
+The investigation showed that cache access and local execution are distinct concerns in BuildStream:
+
+- `artifacts:` / `source-caches:` make the runner talk to `cache.projectbluefin.io:11002` for pulls and pushes.
+- The runner itself is still responsible for the actual `just bst build ...` work.
+
+The working evidence for the current path is:
+
+1. `build.yml` passes `enable-remote-execution: 'false'` to the config generator.
+2. The generated `buildstream-ci.conf` contains the expected `artifacts:` / `source-caches:` sections for the remote cache.
+3. The BuildStream logs show the build advancing on the runner while the remote cache services satisfy pulls and pushes.
+
+Next-run checklist for any future runner-build investigation:
+
+```bash
+# 1. Confirm the workflow still uses the runner for the build
+#    (build.yml)
+grep -n "just bst build" .github/workflows/build.yml
+
+# 2. Confirm the generated config includes the remote cache sections
+#    (artifacts/source-caches)
+grep -n "cache.projectbluefin.io:11002" buildstream-ci.conf
+
+# 3. Check the build logs for remote cache activity and advancing build state
+#    (uploaded buildstream logs artifact)
+grep -E "Pulled artifact|Pulled source|does not have artifact|does not have source|Built" logs/*/*.log | tail -50
+```
+
+### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
+
+The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second
+step inside the same job would serialise the two architectures and block x86 on
+ARM failures. The correct pattern:
+
+- Add a **second top-level job** (`warm-cache-aarch64`) — no `needs:` dependency.
+- Use a **separate `concurrency.group`** (`dakota-cache-warm-aarch64`) so the two
+  jobs never queue behind each other.
+- Set `continue-on-error: true` on the ARM job — ARM failures never block x86.
+- Use `BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64`
+  — the `--config` flag is required for the generated BST CI config (and the
+  remote CAS push) to actually take effect.
+- Use `enable-remote-execution: false`, `enable-push: true` — no RE service for
+  ARM yet, but artifacts should still be pushed to the remote CAS.
+- Use a distinct BST workspace cache key: `bst-warm-aarch64-${{ hashFiles(...) }}`
+  — sharing a key with x86 will cause cross-arch cache pollution.
 
 ### crun 1.21 (resolute) breaks just sbom on GHA — use --runtime runc (2026-06-08)
 

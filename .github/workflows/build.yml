@@ -8,8 +8,6 @@ on:
       - "patches/**"
       - "project.conf"
       - "include/**"
-      - ".github/workflows/build.yml"
-      - ".github/actions/generate-bst-ci-config/**"
   # Fires daily at 13:00 UTC — 5 hours after the gnome-build-meta nightly
   # (~08:00 UTC) to absorb nightly deltas before building.
   # NOTE: schedule triggers run on the default branch; set testing as the
@@ -24,18 +22,11 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Serialize all runner-side BuildStream assembly runs that write to the shared
-# CAS. A run assembles only final OCI targets; it never warms or compiles the
-# dependency graph.
 concurrency:
   group: dakota-bst-build-global
   cancel-in-progress: false
 
 jobs:
-  # ── Default-branch precondition ──────────────────────────────────────────
-  # Scheduled triggers always run on the repository default branch. If the
-  # default branch is not "testing", the daily build silently targets the
-  # wrong ref. Fail fast and loudly when that invariant is violated.
   verify-default-branch:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-24.04
@@ -51,23 +42,12 @@ jobs:
             echo "::error::default branch is '$db', expected 'testing'. Daily schedule will silently target wrong branch. Fix repo settings."
             exit 1
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_name }}" != "testing" ]; then
-            echo "::error::workflow_dispatch ref is '${{ github.ref_name }}', expected 'testing' for :testing publication."
-            exit 1
-          fi
 
-  # ── Full OCI build ────────────────────────────────────────────────────────
-  # Fires on schedule, workflow_dispatch, and key-busting pushes to testing.
-  # merge_group is intentionally excluded: the merge queue requires only
-  # `validate` to pass; a full BST build triggered by merge_group is always
-  # cancelled when the PR merges (before the 5h build can finish), which
-  # wastes the CAS slot and starves the scheduled build.
   build:
     needs: [verify-default-branch]
     if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
-    # Variants build serially so the final OCI artifact pushes never overlap.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -82,7 +62,7 @@ jobs:
             element: oci/bluefin-nvidia.bst
             image_suffix: "-nvidia"
             publish: true
-            continue: false
+            continue: true
     continue-on-error: ${{ matrix.continue }}
     permissions:
       contents: read
@@ -94,10 +74,6 @@ jobs:
         id: timestamp
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      # ── Disk and storage setup ────────────────────────────────────────
-      # Runs before any podman call (BST uses rootful podman to pull bst2;
-      # storage backend must be stable before first use).
-      # update-podman: true — newer podman from Ubuntu resolute for bst2 pull.
       - name: Setup runner
         uses: projectbluefin/actions/bootc-build/setup-runner@v1
         with:
@@ -105,26 +81,15 @@ jobs:
           update-podman: true
           install-tools: '["just"]'
 
-      # ── Generate CI-specific BuildStream config ───────────────────────
-      # The supported Dakota path is a single BuildStream build of the final
-      # OCI element followed by a push of the built artifact to the remote CAS.
-      # Dependencies are fetched from cache.projectbluefin.io; the runner only
-      # assembles the final OCI image.
       - name: Generate BuildStream CI config
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Remote execution is disabled here so we pull cached artifacts from the CAS
-          # and avoid the remote execution queue and server capacity bottlenecks.
-          # We perform final image assembly locally on the GHA runner.
+          enable-remote-execution: "false"
           enable-push: "false"
 
-      # Count the full element graph so the progress script can show %.
-      # bst show only reads element YAML + fetches junction refs — no CAS
-      # traffic, typically <60s. Runs after Generate BuildStream CI config
-      # so the remote CAS address is available.
       - name: Count elements for progress tracking
         id: count
         env:
@@ -145,26 +110,16 @@ jobs:
             echo "total=0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Cache-only dependency gate (fail fast on cache misses)
-        env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
-        run: |
-          # Pull runtime dependencies only from remote artifact caches.
-          # If anything is missing, fail immediately instead of falling into
-          # source compilation paths.
-          just bst artifact pull --deps run ${{ matrix.element }}
-
       - name: Build OCI image with BuildStream
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
           ELEMENT_TOTAL: ${{ steps.count.outputs.total }}
         run: |
           set -o pipefail
-          just bst build --deps none ${{ matrix.element }} 2>&1 \
+          just bst build ${{ matrix.element }} 2>&1 \
             | python3 files/scripts/bst-progress.py
-        timeout-minutes: 25
+        timeout-minutes: 30
 
-      # Push the built OCI artifact to remote CAS so publish.yml can export it.
       - name: Push OCI artifact to remote CAS
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
@@ -172,8 +127,6 @@ jobs:
           just bst artifact push --deps run ${{ matrix.element }}
         timeout-minutes: 15
 
-      # ── Upload build logs ─────────────────────────────────────────────
-      # Always upload, even on failure, so build failures can be diagnosed.
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

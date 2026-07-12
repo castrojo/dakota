@@ -1,9 +1,12 @@
 name: Generate BuildStream CI config
-description: Write BuildStream cache configuration for runner-side assembly.
+description: Write BuildStream CI config for the runner-based Dakota workflow.
 
 inputs:
+  enable-remote-execution:
+    description: Retained for compatibility; Dakota uses the GitHub runner for builds and cache.projectbluefin.io for artifact/source caches.
+    required: true
   enable-push:
-    description: Push artifacts and sources to the remote cache. Set false for fetch-only jobs (e.g. publish).
+    description: Push artifacts and sources to the remote cache. Set false for build jobs.
     required: false
     default: 'true'
 
@@ -13,14 +16,22 @@ runs:
     - name: Generate BuildStream CI config
       shell: bash
       env:
+        ENABLE_REMOTE_EXECUTION: ${{ inputs.enable-remote-execution }}
         ENABLE_PUSH: ${{ inputs.enable-push }}
       run: |
-        mkdir -p logs
+        set -euo pipefail
+        WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$PWD}"
+        mkdir -p "$WORKSPACE_ROOT/logs"
 
-        echo "${CASD_CLIENT_CERT:-}" > client.crt
-        echo "${CASD_CLIENT_KEY:-}" > client.key
+        if [[ "${ENABLE_REMOTE_EXECUTION:-false}" == "true" ]]; then
+          echo "::error::Dakota CI uses the GitHub runner for the BuildStream build; remote execution is intentionally disabled."
+          exit 1
+        fi
 
-        cat > buildstream-ci.conf <<'BSTCONF'
+        printf '%s\n' "${CASD_CLIENT_CERT:-}" > "$WORKSPACE_ROOT/client.crt"
+        printf '%s\n' "${CASD_CLIENT_KEY:-}" > "$WORKSPACE_ROOT/client.key"
+
+        cat > "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONF'
         scheduler:
           on-error: continue
           fetchers: 32
@@ -35,7 +46,7 @@ runs:
         logdir: /src/logs
         BSTCONF
 
-        cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONFBUILD'
         build:
           retry-failed: True
           max-jobs: 1
@@ -44,7 +55,7 @@ runs:
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
           PUSH_FLAG="true"
           [[ "${ENABLE_PUSH:-true}" == "false" ]] && PUSH_FLAG="false"
-          cat >> buildstream-ci.conf <<BSTCONFCACHE
+          cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<BSTCONFCACHE
         artifacts:
           servers:
           - url: https://cache.projectbluefin.io:11002
@@ -98,43 +109,27 @@ runs:
               retry-limit: 5
               retry-delay: 1000
               request-timeout: 180
-
         BSTCONFCACHE
+        fi
 
-        # Write the unified cache configuration block to avoid duplicate keys.
-        cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
+        cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONFCACHEBLOCK'
 
         cache:
           cache-buildtrees: never
         BSTCONFCACHEBLOCK
 
-        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          if [[ "${ENABLE_PUSH:-true}" == "true" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFSTORAGE'
-          storage-service:
-            url: https://cache.projectbluefin.io:11002
-            connection-config:
-              keepalive-time: 180
-              retry-limit: 5
-              retry-delay: 1000
-              request-timeout: 180
-            auth:
-              client-key: /src/client.key
-              client-cert: /src/client.crt
-        BSTCONFSTORAGE
-          fi
-        fi
+        if ! grep -Eq '^[[:space:]]*max-jobs:[[:space:]]*1[[:space:]]*$' "$WORKSPACE_ROOT/buildstream-ci.conf"; then
+          echo "::error::buildstream-ci.conf is missing build.max-jobs: 1; the runner-based Dakota build requires this cap."
+          exit 1
         fi
 
-        cp buildstream-ci.conf logs/buildstream-ci.conf
+        cp "$WORKSPACE_ROOT/buildstream-ci.conf" "$WORKSPACE_ROOT/logs/buildstream-ci.conf"
+        echo "Remote execution enabled: no"
         echo "=== BuildStream CI config ==="
-        cat buildstream-ci.conf
+        cat "$WORKSPACE_ROOT/buildstream-ci.conf"
 
-        # Always generate a push-only config for the post-build artifact push step.
-        # push: true so bst artifact push can write; no storage-service so casd
-        # stays local and there is no sustained gRPC stream during the push phase.
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          cat > buildstream-push.conf <<'BSTCONFPUSH'
+          cat > "$WORKSPACE_ROOT/buildstream-push.conf" <<'BSTCONFPUSH'
         scheduler:
           on-error: continue
           fetchers: 16
@@ -150,6 +145,7 @@ runs:
 
         build:
           retry-failed: True
+          max-jobs: 1
 
         cache:
           cache-buildtrees: never
@@ -182,7 +178,7 @@ runs:
               request-timeout: 180
 
         BSTCONFPUSH
-          cp buildstream-push.conf logs/buildstream-push.conf
+          cp "$WORKSPACE_ROOT/buildstream-push.conf" "$WORKSPACE_ROOT/logs/buildstream-push.conf"
           echo "=== BuildStream push config ==="
-          cat buildstream-push.conf
+          cat "$WORKSPACE_ROOT/buildstream-push.conf"
         fi
