@@ -1,10 +1,7 @@
 [Unit]
 Description=Create NVIDIA device nodes
-# Ordering is sufficient, not just advisory: nvidia-modprobe-config.bst
-# lists the nvidia modules in modules-load.d, and systemd-modules-load
-# completes their loading before this unit starts, so
-# /proc/driver/nvidia/gpus is populated by ExecStart time. If module
-# loading ever moves out of modules-load.d, revisit this unit.
+# Sufficient ordering only because nvidia-modprobe-config.bst loads the
+# nvidia modules via modules-load.d; revisit if that changes.
 After=systemd-modules-load.service
 Before=display-manager.service
 
