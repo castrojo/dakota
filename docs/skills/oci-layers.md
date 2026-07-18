@@ -192,3 +192,17 @@ In a bootc/OSTree-based immutable OS like Dakota, `/etc` is mutable, user-owned,
 1. **Disable ZRAM**: Override `zram-generator` by copying an empty `zram-generator.conf` to `/usr/lib/systemd/zram-generator.conf` (via `just-overrides.bst`) and whitelist it. Since this is in `/usr/lib`, it cleanly preempts the generator from creating devices without cluttering `/etc`.
 2. **Inject Bootc Kernel Arguments**: Install kargs TOML files directly under `/usr/lib/bootc/kargs.d/` (e.g. `/usr/lib/bootc/kargs.d/20-zswap.toml`). Bootc automatically reads these on switch/upgrade and applies them.
 3. **Vendor Sysctl parameters**: Store system defaults under `/usr/lib/sysctl.d/*.conf` (e.g. `60-swappiness.conf`) instead of `/etc/sysctl.conf`.
+
+### Never install a real directory at a GL/ extension path from a layer (2026-07-18)
+
+In the composed image, several paths under `%{libdir}/GL/` are symlinks into
+the Mesa GL extension tree (e.g. `GL/glvnd/egl_vendor.d ->
+../default/glvnd/egl_vendor.d`). A layer that installs a real directory at
+one of those paths shadows the symlink at OCI merge time and evicts the
+files behind it — installing an EGL vendor ICD to
+`%{libdir}/GL/glvnd/egl_vendor.d/` removed Mesa's `50_mesa.json` from
+GLVND's view and with it the llvmpipe fallback. Vendor ICDs belong in
+`/etc/glvnd/egl_vendor.d` (fdsdk's libglvnd searches only `/etc/glvnd` and
+the GL extension dir — never `/usr/share/glvnd`). The same shadowing hazard
+applies to any `GL/` path: check with `ls -ld` on a composed image before
+choosing an install location under `GL/`.
