@@ -247,6 +247,14 @@ config:
         install -Dm644 "$f" \
             "%{install-root}%{datadir}/egl/egl_external_platform.d/$f"
     done
+    # The loop above is vacuous if the manifest stops declaring these
+    # rows; wayland and gbm are load-bearing for the session, so verify.
+    for f in 10_nvidia_wayland.json 15_nvidia_gbm.json; do
+        if [ ! -f "%{install-root}%{datadir}/egl/egl_external_platform.d/$f" ]; then
+            echo "ERROR: expected EGL external-platform JSON $f was not installed" >&2
+            exit 1
+        fi
+    done
 
     # GSP firmware: Turing+ offloads work to a chip-internal RISC-V
     # core; nvidia.ko loads the firmware at probe time.
