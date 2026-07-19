@@ -290,3 +290,44 @@ Applying any local patch queue (`patch_queue` source) to a junction (like `gnome
 
 - **Consequence:** Carrying local patches (like `disable-lorry-mirrors.patch`) on a junction silently forces local compiles for massive components (like WebKit) by preventing cache reuse against the official public upstream cache (`gbm.gnome.org:11003`).
 - **Fix:** Keep junctions 100% clean of downstream patch queues. If a patch is required, submit it upstream first or bump the junction ref. Removing the patch queue on `gnome-build-meta` immediately restored 1053 out of 1090 cached elements (96% cache hit rate).
+
+### Overriding a single file a junction ships into /etc (overlap-whitelist pattern) (2026-07-19)
+
+To replace one file that an upstream junction component installs (not patch the
+junction, not shadow the whole element), ship a Dakota `bluefin/*.bst` element
+that installs the replacement to the same path, and use `overlap-whitelist` to
+win the compose overlap. This is the same mechanism `bluefin/sudo-rs.bst` uses
+to take over `/usr/bin/sudo` from fdsdk's `components/sudo.bst`.
+
+```yaml
+public:
+  bst:
+    overlap-whitelist:
+    - /etc/pam.d/system-auth   # literal path, not a %{var}
+depends:
+- freedesktop-sdk.bst:components/linux-pam.bst   # forces staging AFTER the stock file
+```
+
+Two facts that make this safe and deterministic:
+
+- **Staging order = overlap winner.** Whitelisting only silences the warning; the
+  element staged *later* wins. A runtime `depends:` on the component that ships
+  the original guarantees the override stages after it. (`sudo-rs.bst` gets away
+  without the explicit dep, but declaring it removes the ambiguity.)
+- **/etc vs /usr/etc matters.** fdsdk `sysconfdir=/etc`, so config like
+  `linux-pam`'s pam.d lands in real `/etc`, and the compose includes `/etc`.
+  `oci/bluefin.bst` only merges `/usr/etc -> /etc` (`cp -a`, `/usr/etc` wins) —
+  it never touches files already in `/etc`. So an `/etc` override is NOT
+  clobbered by that merge. If you instead need to override something a component
+  ships to `/usr/etc`, your override must also go to `/usr/etc` (mine would lose
+  to the merge otherwise) and the whitelist path must be the `/usr/etc` one.
+
+Case study — issue #953, fingerprint for sudo/polkit: `bluefin/fprintd-system-auth.bst`
+ships a full `/etc/pam.d/system-auth` with `auth sufficient pam_fprintd.so` above
+`pam_unix`. PAM has no drop-in for the aggregate `system-auth` stack and there is
+no authselect on this image, so a whole-file override is the only option. sudo
+(`/etc/pam.d/sudo`) and polkit (`/usr/lib/pam.d/polkit-1`) both reach it via
+`auth include system-auth`. Note Dakota builds sudo-rs without the `pam-login`
+cargo feature (`default = []`), so sudo-rs opens the `sudo` PAM service (not
+`sudo-i`) for `sudo -i` too — both paths include `system-auth`. Re-sync the
+copied stock stack at every fdsdk bump.
