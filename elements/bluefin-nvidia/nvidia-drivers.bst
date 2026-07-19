@@ -118,78 +118,76 @@ config:
     LIBDIR="%{install-root}%{libdir}"
     install -d "$LIBDIR" "$LIBDIR/vdpau"
 
-    for lib in \
-        libcuda.so.%{nvidia-version} \
-        libnvcuvid.so.%{nvidia-version} \
-        libnvidia-allocator.so.%{nvidia-version} \
-        libnvidia-cfg.so.%{nvidia-version} \
-        libnvidia-eglcore.so.%{nvidia-version} \
-        libnvidia-encode.so.%{nvidia-version} \
-        libnvidia-fbc.so.%{nvidia-version} \
-        libnvidia-glcore.so.%{nvidia-version} \
-        libnvidia-glsi.so.%{nvidia-version} \
-        libnvidia-glvkspirv.so.%{nvidia-version} \
-        libnvidia-ml.so.%{nvidia-version} \
-        libnvidia-opticalflow.so.%{nvidia-version} \
-        libnvidia-ptxjitcompiler.so.%{nvidia-version} \
-        libnvidia-rtcore.so.%{nvidia-version} \
-        libnvidia-tls.so.%{nvidia-version} \
-        libnvoptix.so.%{nvidia-version} \
-        libEGL_nvidia.so.%{nvidia-version} \
-        libGLESv1_CM_nvidia.so.%{nvidia-version} \
-        libGLESv2_nvidia.so.%{nvidia-version} \
-        libGLX_nvidia.so.%{nvidia-version} \
-        libnvidia-opencl.so.%{nvidia-version} \
-    ; do
-        if [ -f "$lib" ]; then
-            install -Dm755 "$lib" "$LIBDIR/$lib"
-        fi
+    # Libraries and their symlinks come from the .run's .manifest (the
+    # same metadata nvidia-installer uses), selected by TYPE so new
+    # libraries flow in on driver bumps. Not selected: GLVND/GLX/EGL
+    # client libs (system libglvnd comes from freedesktop-sdk),
+    # OPENCL_WRAPPER (ocl-icd owns libOpenCL), Wine/Xorg-module/
+    # installer internals, and all COMPAT32 rows (no 32-bit multilib).
+    # Row shape: <name> <mode> <TYPE> <ARCH> [subdir/] [target] MODULE:<tag>
+    # awk normalizes rows to fixed columns and flags anything it cannot
+    # classify, so a changed manifest format fails the build loudly.
+    # SONAME links the manifest does not declare are created by ldconfig
+    # at compose integration time.
+    awk '
+        BEGIN {
+            n = split("OPENGL_LIB CUDA_LIB NVCUVID_LIB ENCODEAPI_LIB" \
+                      " UTILITY_LIB TLS_LIB OPENCL_LIB VDPAU_LIB", a, " ")
+            for (i = 1; i <= n; i++) isfile[a[i]] = 1
+            n = split("OPENGL_SYMLINK CUDA_SYMLINK NVCUVID_LIB_SYMLINK" \
+                      " ENCODEAPI_LIB_SYMLINK UTILITY_LIB_SYMLINK" \
+                      " OPENCL_LIB_SYMLINK VDPAU_SYMLINK" \
+                      " GBM_BACKEND_LIB_SYMLINK", b, " ")
+            for (i = 1; i <= n; i++) islink[b[i]] = 1
+        }
+        NF >= 4 && $2 ~ /^[0-9]+$/ && $4 == "NATIVE" && ($3 in isfile || $3 in islink) {
+            subdir = "-"; target = "-"; bad = 0
+            for (i = 5; i <= NF; i++) {
+                if ($i ~ /^MODULE:/ || $i == "/") continue
+                else if ($i ~ /\/$/) subdir = $i
+                else if (target == "-") target = $i
+                else bad = 1
+            }
+            if (bad || ($3 in islink && target == "-") ||
+                ($3 == "GBM_BACKEND_LIB_SYMLINK" && target ~ /\//)) {
+                print "E", $0
+                next
+            }
+            kind = ($3 in isfile) ? "F" : ($3 == "GBM_BACKEND_LIB_SYMLINK" ? "G" : "L")
+            print kind, $1, subdir, target
+        }' .manifest | \
+    while read -r kind name subdir target; do
+        [ "$subdir" = "-" ] && subdir=""
+        case "$kind" in
+        E)
+            echo "ERROR: unparseable .manifest row: $name $subdir $target" >&2
+            exit 1
+            ;;
+        F)
+            if [ ! -f "$name" ]; then
+                echo "ERROR: .manifest lists $name but it is not in the payload" >&2
+                exit 1
+            fi
+            install -Dm755 "$name" "$LIBDIR/${subdir}${name}"
+            ;;
+        L)
+            [ -z "$subdir" ] || [ -d "$LIBDIR/$subdir" ] || install -d "$LIBDIR/$subdir"
+            ln -sf "$target" "$LIBDIR/${subdir}${name}"
+            ;;
+        G)
+            # Relocated to the backend dir freedesktop-sdk's Mesa
+            # compiles into libgbm; the link IS the backend (its
+            # entrypoints live in the target library).
+            install -d "$LIBDIR/GL/lib/gbm"
+            ln -sf "../../../$target" "$LIBDIR/GL/lib/gbm/$name"
+            ;;
+        esac
     done
 
-    # VDPAU GPU driver goes in the vdpau/ sub-directory, not $LIBDIR root.
-    if [ -f "libvdpau_nvidia.so.%{nvidia-version}" ]; then
-        install -Dm755 "libvdpau_nvidia.so.%{nvidia-version}" \
-            "$LIBDIR/vdpau/libvdpau_nvidia.so.%{nvidia-version}"
-        ln -sf "libvdpau_nvidia.so.%{nvidia-version}" \
-            "$LIBDIR/vdpau/libvdpau_nvidia.so.1"
-        ln -sf "libvdpau_nvidia.so.%{nvidia-version}" \
-            "$LIBDIR/vdpau/libvdpau_nvidia.so"
-    fi
-
-    # libnvidia-egl-* / libnvidia-vulkan-* use NVIDIA-internal versioning
-    # decoupled from the driver version — copy by glob instead of name.
-    for pat in \
-        'libnvidia-egl-wayland.so.*' \
-        'libnvidia-egl-gbm.so.*' \
-        'libnvidia-egl-xlib.so.*' \
-        'libnvidia-egl-xcb.so.*' \
-        'libnvidia-vulkan-producer.so.*' \
-        'libnvidia-pkcs11*.so.*' \
-        'libnvidia-nvvm.so.*' \
-        'libnvidia-gtk*.so.*' \
-    ; do
-        for f in $pat; do
-            [ -f "$f" ] && install -Dm755 "$f" "$LIBDIR/$f" || true
-        done
-    done
-
-    for lib in "$LIBDIR"/lib*.so.%{nvidia-version}; do
-        [ -f "$lib" ] || continue
-        base=$(basename "$lib")
-        soname=${base%.%{nvidia-version}}
-        major_link=${soname}.1
-        ln -sf "$base" "$LIBDIR/$soname"
-        ln -sf "$base" "$LIBDIR/$major_link"
-    done
-    # libcuda's SONAME is libcuda.so.1, not libcuda.so.
-    [ -e "$LIBDIR/libcuda.so.1" ] || ln -sf "libcuda.so.%{nvidia-version}" "$LIBDIR/libcuda.so.1"
-
-    # Userspace tools shipped in the .run payload — install-commands above
-    # only handle libraries, kernel modules, firmware, and ICDs, so without
-    # this loop /usr/bin/nvidia-smi is absent. nvidia-modprobe is 0755, not
-    # 4755: modules load at boot via /etc/modules-load.d, so an unprivileged
-    # process never needs to invoke it.
-    BINDIR="%{install-root}/usr/bin"
+    # Userspace tools. nvidia-modprobe stays 0755 (not NVIDIA's 4755):
+    # nvidia-device-nodes.service invokes it as root, so no unprivileged
+    # process needs it.
+    BINDIR="%{install-root}%{bindir}"
     install -d "$BINDIR"
     for bin in \
         nvidia-smi \
@@ -223,13 +221,31 @@ config:
         [ -f "$f" ] && install -Dm644 "$f" \
             "%{install-root}/usr/share/vulkan/implicit_layer.d/$f" || true
     done
-    for f in 10_nvidia.json; do
-        [ -f "$f" ] && install -Dm644 "$f" \
-            "%{install-root}/usr/share/glvnd/egl_vendor.d/$f" || true
-    done
-    for f in 10_nvidia_wayland.json 15_nvidia_gbm.json; do
-        [ -f "$f" ] && install -Dm644 "$f" \
-            "%{install-root}/usr/share/egl/egl_external_platform.d/$f" || true
+    # fdsdk's libglvnd searches only /etc/glvnd/egl_vendor.d and
+    # %{libdir}/GL/glvnd/egl_vendor.d — never /usr/share. The GL dir is
+    # a symlink into the Mesa extension tree that a real directory here
+    # would shadow at OCI merge (see docs/skills/oci-layers.md), so the
+    # load-bearing copy goes to /etc; /usr/share is convention only.
+    # Upstream-Status: not-submitted (fdsdk libglvnd sets datadir=%{libdir}/GL)
+    # Exit: when fdsdk libglvnd also searches /usr/share/glvnd/egl_vendor.d
+    if [ ! -f 10_nvidia.json ]; then
+        echo "ERROR: 10_nvidia.json missing from driver payload" >&2
+        exit 1
+    fi
+    install -Dm644 10_nvidia.json \
+        "%{install-root}%{sysconfdir}/glvnd/egl_vendor.d/10_nvidia.json"
+    install -Dm644 10_nvidia.json \
+        "%{install-root}%{datadir}/glvnd/egl_vendor.d/10_nvidia.json"
+    # EGL external-platform JSONs (wayland, wayland2, gbm, xcb, xlib)
+    # are manifest-driven like the libraries they activate.
+    awk '$3 == "EGL_EXTERNAL_PLATFORM_JSON" { print $1 }' .manifest | \
+    while read -r f; do
+        if [ ! -f "$f" ]; then
+            echo "ERROR: .manifest lists $f but it is not in the payload" >&2
+            exit 1
+        fi
+        install -Dm644 "$f" \
+            "%{install-root}%{datadir}/egl/egl_external_platform.d/$f"
     done
 
     # GSP firmware: Turing+ offloads work to a chip-internal RISC-V
@@ -272,3 +288,25 @@ config:
         install -Dm644 LICENSE \
             "%{install-root}/usr/share/doc/nvidia/LICENSE"
     fi
+  # Fail the build if any installed NVIDIA ELF has an NVIDIA-internal
+  # DT_NEEDED that the manifest TYPE selection above did not install
+  # (e.g. a newly split-out library like libnvidia-gpucomp).
+  - |
+    set -euo pipefail
+    LIBDIR="%{install-root}%{libdir}"
+    BINDIR="%{install-root}%{bindir}"
+    status=0
+    for obj in "$LIBDIR"/lib*.so.* "$LIBDIR"/vdpau/lib*.so.* "$BINDIR"/*; do
+        { [ -f "$obj" ] && [ ! -L "$obj" ]; } || continue
+        for dep in $(objdump -p "$obj" 2>/dev/null | awk '/NEEDED/{print $2}' || true); do
+            case "$dep" in
+              libnvidia-*|libcuda.so*|libnvcuvid.so*|libnvoptix.so*)
+                if [ ! -e "$LIBDIR/$dep" ]; then
+                    echo "ERROR: $(basename "$obj") requires $dep, which is not installed" >&2
+                    status=1
+                fi
+                ;;
+            esac
+        done
+    done
+    exit "$status"
