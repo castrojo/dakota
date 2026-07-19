@@ -265,22 +265,45 @@ config:
             "%{install-root}/etc/OpenCL/vendors/nvidia.icd"
     fi
 
-    # Power management: save/restore GPU state across suspend and hibernate.
-    # Without these the GPU context is lost on resume, causing hard locks.
-    SYSTEMD_SYSTEM="%{install-root}/usr/lib/systemd/system"
-    SYSTEMD_SLEEP="%{install-root}/usr/lib/systemd/system-sleep"
-    install -d "$SYSTEMD_SYSTEM" "$SYSTEMD_SLEEP"
+    # Power management: save/restore VRAM across suspend/hibernate.
+    # PreserveVideoMemoryAllocations=1 (nvidia-modprobe-config.bst) makes
+    # these load-bearing: without the /proc/driver/nvidia/suspend
+    # handshake they perform, the driver vetoes kernel PM outright
+    # (nv_pmops_suspend returns -5) and the machine cannot sleep (#1118).
+    # The payload stores all of this under systemd/, not the payload root.
+    SYSTEMD_DIR="%{install-root}%{indep-libdir}/systemd"
     for svc in \
         nvidia-hibernate.service \
         nvidia-resume.service \
         nvidia-suspend.service \
         nvidia-suspend-then-hibernate.service \
     ; do
-        [ -f "$svc" ] && install -Dm644 "$svc" "$SYSTEMD_SYSTEM/$svc" || true
+        if [ ! -f "systemd/system/$svc" ]; then
+            echo "ERROR: $svc missing from driver payload" >&2
+            exit 1
+        fi
+        install -Dm644 "systemd/system/$svc" "$SYSTEMD_DIR/system/$svc"
     done
-    if [ -f nvidia-sleep.sh ]; then
-        install -Dm755 nvidia-sleep.sh "$SYSTEMD_SLEEP/nvidia"
-    fi
+    # The units ExecStart /usr/bin/nvidia-sleep.sh; the system-sleep hook
+    # drives resume and the suspend-then-hibernate special cases.
+    for f in systemd/nvidia-sleep.sh systemd/system-sleep/nvidia; do
+        if [ ! -f "$f" ]; then
+            echo "ERROR: $f missing from driver payload" >&2
+            exit 1
+        fi
+    done
+    install -Dm755 systemd/nvidia-sleep.sh "$BINDIR/nvidia-sleep.sh"
+    install -Dm755 systemd/system-sleep/nvidia "$SYSTEMD_DIR/system-sleep/nvidia"
+    # NVIDIA's no-freeze drop-ins: systemd freezes user sessions before
+    # sleep, which deadlocks against the VT switch nvidia-sleep.sh does.
+    for d in systemd/system/systemd-*.service.d; do
+        if [ ! -d "$d" ]; then
+            echo "ERROR: no nvidia-suspend-nofreeze drop-ins in payload" >&2
+            exit 1
+        fi
+        install -Dm644 "$d/nvidia-suspend-nofreeze.conf" \
+            "$SYSTEMD_DIR/system/$(basename "$d")/nvidia-suspend-nofreeze.conf"
+    done
 
     # NVIDIA's SLA permits redistribution of the userspace libs only if
     # the EULA travels with them.
@@ -288,6 +311,13 @@ config:
         install -Dm644 LICENSE \
             "%{install-root}/usr/share/doc/nvidia/LICENSE"
     fi
+  - |
+    install -Dm644 /dev/stdin "%{install-root}%{indep-libdir}/systemd/system-preset/80-nvidia-pm.preset" <<'PRESET'
+    enable nvidia-suspend.service
+    enable nvidia-resume.service
+    enable nvidia-hibernate.service
+    enable nvidia-suspend-then-hibernate.service
+    PRESET
   # Fail the build if any installed NVIDIA ELF has an NVIDIA-internal
   # DT_NEEDED that the manifest TYPE selection above did not install
   # (e.g. a newly split-out library like libnvidia-gpucomp).
