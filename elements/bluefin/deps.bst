@@ -39,6 +39,8 @@ depends:
   - bluefin/xdg-terminal-exec.bst
   - bluefin/nautilus-python.bst
   - bluefin/gnome-ponytail-daemon.bst
+  # Restores the VTE typelibs the app-drop strips out (dakota#1022)
+  - bluefin/vte.bst
   - bluefin/network.bst
   - bluefin/countme.bst
   # - bluefin/lsp-plugins-lv2.bst
