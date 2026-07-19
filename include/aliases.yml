@@ -9,6 +9,7 @@
 aliases:
   # file aliases (e.g. tarballs)
   0pointer: https://0pointer.de/
+  alsa_project: https://www.alsa-project.org/files/pub/
   codeberg_files: https://codeberg.org/
   bindfs: https://bindfs.org/downloads/
   brltty: https://brltty.app/archive/
