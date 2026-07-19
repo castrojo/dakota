@@ -46,6 +46,10 @@ depends:
   # Include things missing from the gnomeos base image
   - gnome-build-meta.bst:core-deps/fwupd.bst
 
+  # system-monitor shell extension needs GTop-2.0.typelib; only reaches the image
+  # transitively via gnome-control-center otherwise (projectbluefin/dakota#1163)
+  - gnome-build-meta.bst:core-deps/libgtop.bst
+
   - freedesktop-sdk.bst:components/buildstream2.bst
   - freedesktop-sdk.bst:components/containers-common.bst
   - freedesktop-sdk.bst:components/debuginfod.bst
