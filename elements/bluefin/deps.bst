@@ -73,5 +73,6 @@ depends:
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
 
   - bluefin/bindmounts.bst
+  - bluefin/migrate-var-home-passwd.bst
 
   - gnome-build-meta.bst:gnomeos-deps/snapd.bst
