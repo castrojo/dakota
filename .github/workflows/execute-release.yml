@@ -15,6 +15,11 @@ on:
         description: 'Emergency recovery only — skip testsuite release gates'
         type: boolean
         default: false
+      promote_sha:
+        description: 'Recovery only — promote a specific SHA instead of the current testing HEAD (bypasses SHA mismatch guard)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   actions: read
@@ -51,8 +56,13 @@ jobs:
             exit 0
           fi
 
-          # Resolve the SHA that was built and published
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          # Resolve the SHA that was built and published.
+          # promote_sha overrides SHA resolution (recovery: promotes a specific build
+          # even when testing has advanced past it due to workflow-only commits).
+          if [[ -n "${{ inputs.promote_sha }}" ]]; then
+            BUILD_SHA="${{ inputs.promote_sha }}"
+            echo "Recovery mode: promoting specified SHA ${BUILD_SHA}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             BUILD_SHA="${{ github.event.workflow_run.head_sha }}"
           else
             BUILD_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/testing" --jq '.object.sha')
@@ -77,7 +87,8 @@ jobs:
 
           # Guard: if testing advanced since the build, the reusable fast-forward would
           # point main to a newer commit than the image we're promoting. Skip promotion.
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          # Bypassed when promote_sha is specified (recovery: explicit SHA override).
+          if [ "${{ github.event_name }}" = "workflow_run" ] && [[ -z "${{ inputs.promote_sha }}" ]]; then
             CURRENT_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/testing" --jq '.object.sha')
             if [ "$CURRENT_SHA" != "$BUILD_SHA" ]; then
               echo "::warning::testing has advanced (build: ${BUILD_SHA}, current: ${CURRENT_SHA}). Skipping promotion to avoid SHA mismatch on main fast-forward. Will promote next build."
