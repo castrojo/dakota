@@ -350,7 +350,6 @@ jobs:
         run: |
           IMAGE="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}"
           DIGEST=$(skopeo inspect \
-            --creds "$GH_ACTOR:$GH_TOKEN" \
             "docker://${IMAGE}:${BUILD_SHA}" \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['Digest'])")
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
@@ -423,7 +422,6 @@ jobs:
           # GHCR manifest-visibility delay without moving a broken stream tag.
           for attempt in $(seq 1 12); do
             if skopeo inspect --no-tags \
-                --creds "$GH_ACTOR:$GH_TOKEN" \
                 "docker://${IMAGE}:${BUILD_SHA}" > /dev/null 2>&1; then
               break
             fi
@@ -449,7 +447,6 @@ jobs:
           $PUSH_OK || { echo "ERROR: all copy attempts failed for :${TESTING_TAG}"; exit 1; }
 
           if ! skopeo inspect --no-tags \
-              --creds "$GH_ACTOR:$GH_TOKEN" \
               "docker://${IMAGE}:${TESTING_TAG}" > /dev/null 2>&1; then
             echo "ERROR: promoted tag :${TESTING_TAG} is not readable in GHCR"
             exit 1
