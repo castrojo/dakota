@@ -2738,3 +2738,106 @@ condition: retry `skopeo inspect` after the push, before moving `:testing`, and 
 in any `workflow_run` consumer before pulling the image. This keeps eventual
 registry consistency from producing false smoke failures or a release job that
 races a tag that is not yet readable.
+
+### `skopeo inspect --creds` fails for public GHCR in workflow_run jobs (2026-07-28)
+
+Using `skopeo inspect --creds "$GH_ACTOR:$GH_TOKEN"` to verify a public GHCR tag
+after push fails silently in `workflow_run`-triggered jobs. The credentials are
+valid (the push succeeds using `podman login`), but `skopeo inspect` with those
+credentials returns an error for public packages in this trigger context.
+
+**Root cause:** The `GITHUB_TOKEN` scoped to a `workflow_run` event does not have
+permission to read packages via the skopeo credential path for public registries.
+The push (via `podman`, which uses the stored login) succeeds; only the post-push
+verification via `skopeo inspect --creds` fails.
+
+**Fix:** Remove `--creds` from all `skopeo inspect` calls that verify public GHCR
+visibility. Unauthenticated access works for public packages:
+```bash
+# ❌ fails in workflow_run context
+skopeo inspect --creds "$GH_ACTOR:$GH_TOKEN" "docker://${IMAGE}:${SHA}"
+
+# ✅ correct — public packages need no credentials
+skopeo inspect --no-tags "docker://${IMAGE}:${SHA}"
+```
+Authenticated `skopeo copy` (for actual tag promotion) still needs `--src-creds`/`--dest-creds`.
+
+### workflow_run uses the DEFAULT BRANCH version of the workflow file (2026-07-28)
+
+When a `workflow_run`-triggered workflow fires (e.g. publish.yml triggered by
+Build Bluefin dakota completing), GitHub uses the workflow file from the **default
+branch** of the repository, NOT from the `head_sha` of the triggering run.
+
+**Implication for Dakota:** Dakota's default branch is `testing`. So publish.yml
+always runs the version at the current `testing` HEAD — even when the build SHA
+(`github.event.workflow_run.head_sha`) points to an older commit. The repo checkout
+inside the job uses `ref: ${{ needs.setup.outputs.sha }}` (the build SHA), but the
+*workflow logic itself* is from the default branch.
+
+**Why this matters:** Fixes to publish.yml pushed to `testing` take effect on the
+NEXT publish run, even if the next publish is for an older build SHA. You do NOT
+need to cherry-pick workflow fixes back to the build SHA — pushing to `testing` is
+sufficient.
+
+### main/testing divergence causes force=false fast-forward failure (2026-07-28)
+
+If commits land directly on `main` (bypassing the testing→promotion flow), `main`
+diverges from `testing`. The reusable `execute-release.yml` action does a
+`force=false` fast-forward of `main` to the promoted SHA, which fails if `main`
+has commits that aren't in the promoted SHA's ancestry.
+
+**Pattern:** `main` shows as "diverged" vs the build SHA. The reusable action's
+`gh api ... --method PATCH --field force=false` returns HTTP 422.
+
+**Fix:** Remove `fast_forward_branch` from the reusable action call. Add a separate
+`update-main-bookmark` job that uses `force=true`:
+```yaml
+update-main-bookmark:
+  needs: [freshness-check, execute]
+  if: always() && needs.execute.result == 'success'
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
+  steps:
+    - name: Force-update main to promoted SHA
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TARGET_SHA: ${{ needs.freshness-check.outputs.build_sha }}
+      run: |
+        compare=$(gh api "repos/${{ github.repository }}/compare/${TARGET_SHA}...main" \
+          --jq '.status' 2>/dev/null || echo "unknown")
+        [ "$compare" = 'identical' ] && exit 0
+        gh api "repos/${{ github.repository }}/git/refs/heads/main" \
+          --method PATCH --field sha="$TARGET_SHA" --field force=true
+```
+
+**Prevention:** Never commit directly to `main`. All changes must go through PRs
+against `testing`. The stable bookmark (`main`) is only written by the
+execute-release.yml promotion flow.
+
+### promote_sha input for SHA-mismatch recovery (2026-07-28)
+
+After pushing workflow-only fixes to `testing`, the testing HEAD advances past the
+build SHA. The execute-release auto-trigger then sees `CURRENT_SHA != BUILD_SHA`
+(build: `a1a76d1`, testing HEAD: `736ba44`) and skips promotion with "testing has
+advanced — will promote next build."
+
+**Fix:** Add a `promote_sha` workflow_dispatch input that bypasses the SHA mismatch
+guard. When set, the workflow uses the specified SHA instead of the live testing HEAD,
+and skips the mismatch check. Use this for recovery after workflow-only commits to
+testing:
+```bash
+gh workflow run execute-release.yml \
+  --repo projectbluefin/dakota \
+  --ref testing \
+  -f promote_sha=<the-build-sha>
+```
+
+### Publishing is the deliverable — do not over-verify (2026-07-09)
+
+When `:testing` is stale or CI is broken, pushing the validated fix is the primary
+task. Targeted validation (the failing element builds past its failure point,
+`just validate`, `just patch-drift-check`) is sufficient push evidence; a full local
+image build is never a push prerequisite — CI performs that verification itself.
+A stale `:testing` outage was extended a full day by an unnecessary 8-hour local
+verification build.

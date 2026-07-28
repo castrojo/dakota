@@ -261,6 +261,65 @@ gh run cancel <run-id> --repo projectbluefin/dakota
 
 Cancel everything, let one build finish, then re-trigger if needed.
 
+### promote_sha recovery — when testing advances past the build SHA (2026-07-28)
+
+Pushing workflow-only fixes to `testing` (which is the default branch) advances the
+testing HEAD past the build SHA. The auto-triggered execute-release sees
+`CURRENT_SHA != BUILD_SHA` and skips promotion ("testing has advanced — will promote
+next build").
+
+**Recovery:** Use the `promote_sha` workflow_dispatch input:
+```bash
+gh workflow run execute-release.yml \
+  --repo projectbluefin/dakota \
+  --ref testing \
+  -f promote_sha=<the-build-sha>
+```
+
+This bypasses the SHA mismatch guard and promotes the specific build SHA even though
+testing has advanced. Only the SHA-tagged images need to exist in GHCR (they do —
+push succeeds before the verify step runs even in failed publish runs).
+
+**Prerequisite:** The images at `promote_sha` must be cosign-signed. If publish
+failed before signing (e.g. due to the `--creds` skopeo issue), you MUST wait for
+a successful re-publish before dispatching execute-release.
+
+### main/testing bookmark divergence — commits directly on main (2026-07-28)
+
+If commits land directly on `main` (bypassing testing→promotion), `main` diverges
+from `testing`. The reusable execute-release action uses `force=false` for the
+main fast-forward, which fails with HTTP 422 for diverged branches.
+
+**Detection:**
+```bash
+gh api repos/projectbluefin/dakota/compare/TESTING_SHA...main --jq '.status'
+# returns "diverged" instead of "behind" (which is normal)
+```
+
+**Fix in execute-release.yml:** Remove `fast_forward_branch` from the reusable action
+call; add a separate `update-main-bookmark` job with `force=true` that runs after
+execute. This handles both the normal (behind) and diverged cases:
+```yaml
+update-main-bookmark:
+  needs: [freshness-check, execute]
+  if: always() && needs.execute.result == 'success'
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
+  env:
+    GH_TOKEN: ${{ github.token }}
+  steps:
+    - name: Force-update main to promoted SHA
+      env:
+        TARGET_SHA: ${{ needs.freshness-check.outputs.build_sha }}
+      run: |
+        compare=$(gh api "repos/${{ github.repository }}/compare/${TARGET_SHA}...main" \
+          --jq '.status' 2>/dev/null || echo "unknown")
+        [ "$compare" = 'identical' ] && exit 0
+        gh api "repos/${{ github.repository }}/git/refs/heads/main" \
+          --method PATCH --field sha="$TARGET_SHA" --field force=true
+```
+
 ### OCI-native daily promotion model (2026-06-23)
 
 Dakota migrated from a weekly squash-PR ceremony to a daily OCI-native promotion
