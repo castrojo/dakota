@@ -38,11 +38,14 @@ jobs:
   freshness-check:
     runs-on: ubuntu-latest
     outputs:
-      should-release: ${{ steps.compare.outputs.should-release }}
-      build_sha: ${{ steps.compare.outputs.build_sha }}
+      should-release: ${{ steps.compare.outputs.should-release || steps.gate.outputs.should-release }}
+      build_sha: ${{ steps.gate.outputs.build_sha }}
     steps:
-      - name: Check publish conclusion and compare digests
-        id: compare
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Resolve build SHA and release gate
+        id: gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -68,23 +71,6 @@ jobs:
             BUILD_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/testing" --jq '.object.sha')
           fi
 
-          # Verify the SHA-tagged image exists in GHCR (proves this SHA was published).
-          # GHCR can briefly lag after publish.yml completes, so retry before
-          # declaring the release broken.
-          for attempt in $(seq 1 12); do
-            if skopeo inspect --no-tags \
-                "docker://ghcr.io/projectbluefin/dakota:${BUILD_SHA}" > /dev/null 2>&1; then
-              echo "Verified :${BUILD_SHA} is readable in GHCR (attempt ${attempt})"
-              break
-            fi
-            if [ "$attempt" -eq 12 ]; then
-              echo "ERROR: :${BUILD_SHA} is still unavailable in GHCR after publish"
-              exit 1
-            fi
-            echo "Waiting for GHCR to expose :${BUILD_SHA} (attempt ${attempt}/12)..."
-            sleep 10
-          done
-
           # Guard: if testing advanced since the build, the reusable fast-forward would
           # point main to a newer commit than the image we're promoting. Skip promotion.
           # Bypassed when promote_sha is specified (recovery: explicit SHA override).
@@ -97,16 +83,38 @@ jobs:
             fi
           fi
 
-          # Compare the SHA-tagged build digest against :stable. Using the SHA tag
-          # (not floating :testing) guarantees the decision input matches the action
-          # input — the same image we will promote is the one we evaluated.
-          TESTING_DIGEST=$(skopeo inspect --no-tags "docker://ghcr.io/projectbluefin/dakota:${BUILD_SHA}" \
-            | jq -r '.Digest')
+          echo "build_sha=${BUILD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve published digest
+        if: steps.gate.outputs.proceed == 'true'
+        id: digest
+        uses: ./.github/actions/resolve-image-digest
+        with:
+          artifact-name: digest-default
+          image: ghcr.io/projectbluefin/dakota
+          build-sha: ${{ steps.gate.outputs.build_sha }}
+          registry-creds: ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id || '' }}
+          verify: 'true'
+
+      - name: Compare against :stable
+        if: steps.gate.outputs.proceed == 'true'
+        id: compare
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ steps.gate.outputs.build_sha }}
+          TESTING_DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/projectbluefin/dakota"
 
           STABLE_DIGEST=""
-          if skopeo inspect --no-tags "docker://ghcr.io/projectbluefin/dakota:stable" > /dev/null 2>&1; then
-            STABLE_DIGEST=$(skopeo inspect --no-tags "docker://ghcr.io/projectbluefin/dakota:stable" \
-              | jq -r '.Digest')
+          if skopeo inspect --no-tags --creds "${GH_ACTOR}:${GH_TOKEN}" \
+              "docker://${IMAGE}:stable" > /dev/null 2>&1; then
+            STABLE_DIGEST=$(skopeo inspect --no-tags --creds "${GH_ACTOR}:${GH_TOKEN}" \
+              "docker://${IMAGE}:stable" | jq -r '.Digest')
           fi
 
           if [ -n "$STABLE_DIGEST" ] && [ "$TESTING_DIGEST" = "$STABLE_DIGEST" ]; then
@@ -114,7 +122,6 @@ jobs:
             echo ":${BUILD_SHA} and :stable are identical ($TESTING_DIGEST) — nothing to promote"
           else
             echo "should-release=true" >> "$GITHUB_OUTPUT"
-            echo "build_sha=${BUILD_SHA}" >> "$GITHUB_OUTPUT"
             echo ":${BUILD_SHA} ($TESTING_DIGEST) differs from :stable (${STABLE_DIGEST:-not found}) — promotion needed"
           fi
 
