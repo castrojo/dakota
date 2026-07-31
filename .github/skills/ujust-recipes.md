@@ -5,6 +5,15 @@
 
 ---
 
+## Update progress and staged status
+
+`ujust update` delegates to `bctl` for live bootc progress, but
+`bluefinctl` is installed asynchronously by `brew-preinstall`. The recipe must
+bootstrap the Homebrew-managed `bluefinctl` when Homebrew is available, then
+check `bootc upgrade --check` before delegating. `bctl update` currently labels
+every successful run as staged, including no-op image updates, so no-update
+cases must use the existing Flatpak/Homebrew fallback instead.
+
 ## Heredoc content in shebang recipes — defensive pattern
 
 just parses heredoc content inside shebang recipes and can reject constructs

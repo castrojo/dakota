@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dakota Contributors <contributors@projectbluefin.io>
+Date: Fri, 31 Jul 2026 16:00:00 +0000
+Subject: [PATCH] update: bootstrap bctl and avoid false staged status
+
+Upstream-Status: Pending
+Exit: Drop after common/bluefinctl handles first-login bctl installation and no-op staged status.
+
+The Homebrew preinstall service runs asynchronously, so the first manual
+update can otherwise fall back to a silent bootc upgrade. Bootstrap bctl when
+Homebrew is ready, and only use its progress UI when bootc reports an image
+update. This avoids bluefinctl's unconditional staged message for no-op image
+updates while preserving Flatpak and Homebrew updates.
+---
+ system_files/shared/usr/share/ublue-os/just/update.just | 36 +++++++++++++++++-
+ 1 file changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/system_files/shared/usr/share/ublue-os/just/update.just b/system_files/shared/usr/share/ublue-os/just/update.just
+index fbef67e..fc6e8cc 100644
+--- a/system_files/shared/usr/share/ublue-os/just/update.just
++++ b/system_files/shared/usr/share/ublue-os/just/update.just
+@@ -21,6 +21,42 @@ update:
+     fi
+-    # Hand off to bluefinctl when available — richer progress UI, same update logic
++    # bluefinctl is installed asynchronously by brew-preinstall. Bootstrap it
++    # here when Homebrew is ready so the first manual update still has progress.
++    BCTL_CMD=""
+     if command -v bctl &>/dev/null; then
+-        exec bctl update
++        BCTL_CMD="$(command -v bctl)"
++    elif [[ -x /var/home/linuxbrew/.linuxbrew/bin/brew ]]; then
++        BREW_BIN="/var/home/linuxbrew/.linuxbrew/bin/brew"
++        BREWFILE="/usr/share/ublue-os/homebrew/preinstall.d/bluefinctl.Brewfile"
++        if [[ -r "${BREWFILE}" ]]; then
++            echo "bluefinctl is not ready; installing it before the update..."
++            if "${BREW_BIN}" bundle --file="${BREWFILE}"; then
++                if BREW_ENV="$("${BREW_BIN}" shellenv)"; then
++                    if eval "${BREW_ENV}"; then
++                        if command -v bctl &>/dev/null; then
++                            BCTL_CMD="$(command -v bctl)"
++                        fi
++                    else
++                        echo "ujust: failed to initialize Homebrew environment; using the standard update path" >&2
++                    fi
++                else
++                    echo "ujust: failed to initialize Homebrew environment; using the standard update path" >&2
++                fi
++            else
++                echo "ujust: bluefinctl installation failed; using the standard update path" >&2
++            fi
++        fi
+     fi
++
++    if [[ -n "${BCTL_CMD}" ]]; then
++        sudo bootc upgrade --check >/dev/null 2>&1
++        CHECK_STATUS=$?
++        if [[ "${CHECK_STATUS}" -eq 11 ]]; then
++            exec "${BCTL_CMD}" update
++        elif [[ "${CHECK_STATUS}" -ne 0 ]]; then
++            echo "ujust: unable to check for system image updates (exit ${CHECK_STATUS})" >&2
++            exit "${CHECK_STATUS}"
++        fi
++        echo "System image is already up to date; checking application updates..."
++    fi
++    echo "Updating system image..."
+     sudo bootc upgrade
