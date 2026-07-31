@@ -136,6 +136,17 @@ variables:
   strip-binaries: ""
 ```
 
+### Ship WirePlumber policy as a `/usr/share` fragment (2026-07-31)
+
+WirePlumber 0.5 loads distribution-provided configuration fragments from
+`/usr/share/wireplumber/wireplumber.conf.d/*.conf`, while `/etc` and user
+configuration directories remain higher-priority override locations. For
+system-wide ALSA policy, add a config-only manual element with a local source,
+install the fragment under that `/usr/share` path, and wire the element into
+`elements/bluefin/deps.bst`. Use `monitor.alsa.rules` to match a device and
+set `device.disabled = true` when the device must remain kernel-visible but
+must not become a desktop PipeWire node.
+
 ### BST variables cannot be used in source URL fields (2026-06-07)
 
 Unlike install commands where `%{version}` expands correctly, BuildStream does NOT expand variables inside `sources[].url:` fields. Use `include/aliases.yml` to define a URL alias, then reference the alias.
