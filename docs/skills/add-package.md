@@ -173,3 +173,11 @@ junction. If a Shell extension needs the GTK3 introspection ABI, build with `-Dg
 (depends on `gnome-build-meta.bst:sdk/gtk+-3.bst`); upstream's VTE is GTK4-only. Push demo
 binaries and unversioned `.so` linker symlinks to the `devel` split so `bluefin-runtime`'s
 compose (which excludes `devel`) keeps only the `.typelib` + versioned `.so.N`.
+
+### User services that require `/dev/uinput` need both module loading and uaccess (2026-07-31)
+
+For a user-level daemon that opens `/dev/uinput`, installing the upstream unit
+alone is insufficient. Ship a modules-load entry for `uinput` and a udev rule
+with `TAG+="uaccess"` so the active desktop user receives device ACL access
+without manual `chmod` or group edits. Keep the user unit present but unenabled
+unless the feature is explicitly opt-in.
