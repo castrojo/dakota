@@ -94,3 +94,13 @@ Implications for agents:
 - [ ] Only queued work was claimed
 - [ ] No comments duplicated existing widget state
 - [ ] Hardware confirmation state was considered before treating the loop as closed
+
+## Lessons Learned
+
+### Legacy passwd home paths can break GNOME file operations (2026-07-31)
+
+When Dakota changed `/home` from a symlink into a bind mount, upgrades could
+retain `/var/home/<user>` in `/etc/passwd`. That stale path can make GNOME
+path-based operations such as sending files to Trash resolve inconsistently.
+The boot-time migration must rewrite those fields to `/home/<user>` before user
+sessions and desktop services start.
