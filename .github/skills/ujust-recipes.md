@@ -5,6 +5,19 @@
 
 ---
 
+## Homebrew-managed chooser dependencies
+
+`ujust --choose` is a wrapper-level command, so it can run before the
+first-login `brew-preinstall.service` has finished. If the chooser binary is
+managed by Homebrew rather than shipped in the image, the `ujust` wrapper must
+install it on demand, evaluate `brew shellenv`, and verify it with
+`command -v` before dispatching to `just`. Match `--choose` as an exact
+argument so unrelated recipe arguments cannot trigger an install.
+
+Keep this bootstrap temporary when the wrapper is inherited from
+`projectbluefin/common`: carry it as a local patch with an exit condition, then
+drop it when the shared fix is merged and the common ref includes it.
+
 ## Heredoc content in shebang recipes — defensive pattern
 
 just parses heredoc content inside shebang recipes and can reject constructs

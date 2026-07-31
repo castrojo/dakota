@@ -11,6 +11,8 @@ sources:
   ref: f5213ca61615bb79a8315fc4c5378a80ca93922e
 - kind: local
   path: files/wallpaper-month
+- kind: patch_queue
+  path: patches/common
 
 build-depends:
 - gnome-build-meta.bst:gnomeos-deps/just.bst

@@ -1,0 +1,61 @@
+From e4f7e5e7fad8bd83e90055e54439804c24a8b846 Mon Sep 17 00:00:00 2001
+From: Jorge O. Castro <jorge@projectbluefin.io>
+Date: Mon, 27 Jul 2026 21:14:10 -0400
+Subject: [PATCH] ujust: install fzf before choosing recipes
+
+Upstream-Status: Submitted https://github.com/projectbluefin/common/tree/fix/ujust-install-fzf
+Exit: Drop after projectbluefin/common merges fix/ujust-install-fzf and Dakota tracks it.
+
+The chooser is now managed by Homebrew and may not be available until the
+first-login preinstall service completes. Install it on demand before
+dispatching --choose, then verify that the Homebrew environment exposes it.
+---
+ system_files/shared/usr/bin/ujust | 37 ++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/system_files/shared/usr/bin/ujust b/system_files/shared/usr/bin/ujust
+index 28ea130..d5ec6d0 100755
+--- a/system_files/shared/usr/bin/ujust
++++ b/system_files/shared/usr/bin/ujust
+@@ -1,3 +1,38 @@
+-#!/usr/bin/bash
+-
+-just --justfile /usr/share/ublue-os/just/00-entry.just "${@}"
++#!/usr/bin/bash
++
++CHOOSE=false
++for arg in "$@"; do
++    if [[ "$arg" == "--choose" ]]; then
++        CHOOSE=true
++        break
++    fi
++done
++
++if [[ "${CHOOSE}" == true ]] && ! command -v fzf >/dev/null 2>&1; then
++    BREW_BIN="${BREW_BIN:-$(command -v brew 2>/dev/null || true)}"
++    BREW_BIN="${BREW_BIN:-/var/home/linuxbrew/.linuxbrew/bin/brew}"
++
++    if [[ ! -x "${BREW_BIN}" ]]; then
++        echo "ujust: fzf is missing and Homebrew was not found" >&2
++        exit 127
++    fi
++
++    echo "ujust: installing missing fzf with Homebrew..." >&2
++    if ! "${BREW_BIN}" install fzf; then
++        echo "ujust: failed to install fzf" >&2
++        exit 1
++    fi
++
++    SHELLENV_OUTPUT="$("${BREW_BIN}" shellenv)" || {
++        echo "ujust: failed to initialize Homebrew environment" >&2
++        exit 1
++    }
++    eval "${SHELLENV_OUTPUT}"
++
++    if ! command -v fzf >/dev/null 2>&1; then
++        echo "ujust: fzf is still unavailable after Homebrew setup" >&2
++        exit 127
++    fi
++fi
++
++exec just --justfile /usr/share/ublue-os/just/00-entry.just "${@}"
