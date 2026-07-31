@@ -1,0 +1,25 @@
+From 8890000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dakota Contributors <contributors@projectbluefin.io>
+Date: Fri, 31 Jul 2026 16:10:00 +0000
+Subject: [PATCH] bonedigger-report: keep browser launch from changing success
+
+Upstream-Status: Submitted https://github.com/projectbluefin/common/pull/889
+Exit: Drop after common PR 889 lands and Dakota tracks the fixed common ref.
+
+Opening the issue in a browser is best-effort after the report has already
+been submitted. Ignore browser-helper failures and return success explicitly
+so they cannot make `ujust report` look unsuccessful.
+---
+ system_files/bluefin/usr/libexec/bonedigger-report | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/system_files/bluefin/usr/libexec/bonedigger-report b/system_files/bluefin/usr/libexec/bonedigger-report
+index 9b4033c..9b4033c 100755
+--- a/system_files/bluefin/usr/libexec/bonedigger-report
++++ b/system_files/bluefin/usr/libexec/bonedigger-report
+@@ -504,3 +504,4 @@ submit_draft() {
+     rm -rf "$DRAFT_DIR"
+-    offer_browser "$issue_url"
++    offer_browser "$issue_url" || true
++    return 0
+ }

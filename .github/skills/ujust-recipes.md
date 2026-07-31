@@ -5,6 +5,14 @@
 
 ---
 
+## Report submission exit status
+
+`ujust report` completes the public submission before it optionally opens the
+issue in a browser. Browser launching is best-effort and must not determine
+the recipe's exit status; return success explicitly after the issue URL has
+been created. Keep this downstream guard only until the shared
+`bonedigger-report` fix is included by the tracked common ref.
+
 ## Heredoc content in shebang recipes — defensive pattern
 
 just parses heredoc content inside shebang recipes and can reject constructs
