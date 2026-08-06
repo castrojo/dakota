@@ -1,69 +1,96 @@
-# Actionadon Lifecycle and Data Donation
+---
+name: actionadon
+description: Dakota issue lifecycle and data-donation contract. Use when triaging issues, claiming work, reading the pipeline widget, or touching issue-lifecycle automation.
+---
 
-Load when working on any GitHub issue in this repo, triaging bugs, processing the queue, or touching `.github/workflows/actionadon.yml`.
+# Actionadon
 
-## When to load this skill
+## Overview
 
-Load when: working on any GitHub issue in this repo, triaging bugs, processing the queue, or touching `.github/workflows/actionadon.yml`.
+Dakota issues are not just tickets. They are **data donations**.
+The pipeline widget, labels, slash commands, and verification counts are how the factory turns user evidence into work the queue can trust.
 
-## The data donation contract
+## When to Use
 
-Dakota's bug reports are not bug reports. They are data donations. A user running `ujust report` deliberately captures and shares their system state. This is the ground truth that makes from-source OS development tractable. Agents working in this repo must understand this contract and never devalue it.
+Use when:
+- working from GitHub issues in this repo
+- triaging or claiming work
+- reading the Actionadon / pipeline widget state
+- touching issue lifecycle automation or slash-command behavior
 
-**The automation ratio**: without `ujust report`, fixing one bug requires 5+ comment cycles: kernel version, hardware, logs, reproducible, always. With a gist-backed report, the maintainer has everything before the first reply. The pipeline widget makes this visible to the reporter so they know their donation landed and is moving.
+## When NOT to Use
 
-## Pipeline stages and what each means for agents
+- Reviewing or fixing code after the issue is already fully understood
+- Debugging CI or release workflows unrelated to issue lifecycle
 
-```text
-<!-- actionadon-pipeline -->
-DAKOTA  ·  issue pipeline
-─────────────────────────────────────────────────
-  ✓  filed      report received
-  ✓  approved   cleared for the build queue
-  ▶  queued     open for contributors
-  ·  claimed    —
-  ·  done       —
-─────────────────────────────────────────────────
-  report:       attached    ·  confirms: 2
-  area:         hardware    ·  priority: high
-  verified:     0/3         ·  next action: comment /claim to take this
-```
+## Core Process
 
-| Stage | Widget line | Trigger | Agent action |
-|---|---|---|---|
-| `filed` | `✓ filed` or active `▶ filed` | Issue opened. `needs-triage` applied. | Do not claim. Wait for human triage. If `report: missing`, do not interrogate the reporter. They may not have run `ujust report` yet. If the issue is vague, link them to `ujust report`. |
-| `approved` | `✓ approved` or active `▶ approved` | Maintainer adds `status/approved`. Actionadon also adds `queue/agent-ready`. | Human review is complete. Agent may `/claim` once the issue is actually in queue. |
-| `queued` | `▶ queued` | `queue/agent-ready` present. Issue is in the contributor pool. | Comment `/claim` to take it. Check `confirms:` first. Higher count means broader hardware impact. |
-| `claimed` | `▶ claimed` | `/claim` comment assigns the issue and adds `queue/claimed`. | You own it. Build, test, open the PR. Comment `/unclaim` if blocked. Seven days of inactivity auto-releases it. |
-| `done` | `▶ done` or closed issue | Issue closed after the fix ships. | Do not reopen. Read `verified: N/3` as post-ship hardware confirmation. If below target, flag for human decision instead of acting unilaterally. |
+1. **Read the widget before acting.**
+2. **Treat `report: attached` as ground truth.** Read the report before asking questions.
+3. **Respect stage ownership.** Agents build from queued/claimed work; humans approve.
+4. **Use slash commands to interact with the queue.** Do not freestyle the lifecycle.
+5. **Do not duplicate widget state in comments.** The widget is already the status surface.
 
-## Widget sentinel rule
+## Data Donation Contract
 
-The sentinel `<!-- actionadon-pipeline -->` marks the managed block at the top of every issue body. Agents must never:
+A user who runs `ujust report` intentionally donates system state.
+That donation is what makes a from-source desktop factory workable.
 
-- Remove or edit the sentinel block manually
-- Post a comment that duplicates the pipeline state. The widget is the state.
-- Close an issue without checking `verified:`. Target is `3/3`. Below that, flag for human decision.
+Implications for agents:
+- if `report: attached`, read it before asking the reporter anything
+- if `confirms: N` is high, treat the issue as broader hardware impact
+- if `verified: N/3` is low after ship, do not close the loop casually
 
-## Reading the metadata rows
+## Stage Map
 
-| Row | What it tells you |
-|-----|-------------------|
-| `report: attached` | Full gist telemetry exists. Check it before asking any question. |
-| `report: missing` | No gist yet. The issue may be less actionable. |
-| `confirms: N` | `N` people hit this on distinct hardware. Use it as a blast-radius proxy. |
-| `verified: N/3` | `N` people confirmed the fix on real hardware after ship. |
-| `area:` | Subsystem from labels. Scope your fix accordingly. |
-| `priority:` | Urgency from labels. |
+| Stage | Meaning | Agent action |
+|---|---|---|
+| `filed` | Issue exists, not yet queued for builders | do not claim; wait for human triage |
+| `approved` | Human review says it is real and should move forward | prepare to pick it up once queued |
+| `queued` | Ready for contributors/agents | `/claim` if you are taking it |
+| `claimed` | Someone owns it | if not you, leave it alone |
+| `done` | Fix shipped, awaiting verification | do not rewrite history; check `verified:` |
 
-## Slash commands
+## Widget Reading Guide
 
-| Command | Who | Effect |
-|---------|-----|--------|
-| `/claim` | anyone | Assigns you, adds `queue/claimed`, advances the widget |
-| `/unclaim` | assignee or write+ | Returns the issue to the queue |
-| `/approve` or `/lgtm` | write+ | Adds `lgtm`, auto-queues |
+| Row | Meaning |
+|---|---|
+| `report: attached` | gist-backed telemetry exists |
+| `report: missing` | less evidence; ask for `ujust report` rather than freeform logs |
+| `confirms: N` | blast radius proxy across real hardware |
+| `verified: N/3` | post-ship confirmation target |
+| `area:` | subsystem scope |
+| `priority:` | urgency from labels |
 
-## Hive exempt labels
+## Slash Commands
 
-Do not touch issues with: `hold`, `do-not-merge`, `status/discussing`, `queue/claimed` (if you are not the assignee), `agent/blocked`, `needs-human/agent-oops`.
+| Command | Effect |
+|---|---|
+| `/claim` | assign yourself and move to claimed |
+| `/unclaim` | return the issue to the queue |
+| `/approve` or `/lgtm` | maintainer approval / queue progression |
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll just ask the reporter for logs." | If `report: attached`, the logs are already there. Read them first. |
+| "I'll claim it even though it's not queued yet." | That bypasses the factory's human approval step. |
+| "I'll summarize widget state in a comment." | Noise. The widget already exists for that. |
+| "`verified: 0/3` is probably fine if CI passed." | This repo explicitly values hardware confirmation over wishful closure. |
+
+## Red Flags
+
+- Claiming non-queued work
+- Ignoring an attached report
+- Commenting status that is already visible in the widget
+- Reopening or closing issues without checking verification counts
+- Touching `hold`, `do-not-merge`, `status/discussing`, or someone else's `status/claimed` issue
+
+## Verification
+
+- [ ] Widget state was read before acting
+- [ ] Attached reports were read before asking questions
+- [ ] Only queued work was claimed
+- [ ] No comments duplicated existing widget state
+- [ ] Hardware confirmation state was considered before treating the loop as closed

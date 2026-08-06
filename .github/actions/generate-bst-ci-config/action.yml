@@ -5,6 +5,10 @@ inputs:
   enable-remote-execution:
     description: Enable x86_64 remote execution settings and max-jobs tuning.
     required: true
+  enable-push:
+    description: Push artifacts and sources to the remote cache. Set false for fetch-only jobs (e.g. publish).
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -13,6 +17,7 @@ runs:
       shell: bash
       env:
         ENABLE_REMOTE_EXECUTION: ${{ inputs.enable-remote-execution }}
+        ENABLE_PUSH: ${{ inputs.enable-push }}
       run: |
         mkdir -p logs
 
@@ -55,11 +60,13 @@ runs:
         fi
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          cat >> buildstream-ci.conf <<'BSTCONFCACHE'
+          PUSH_FLAG="true"
+          [[ "${ENABLE_PUSH:-true}" == "false" ]] && PUSH_FLAG="false"
+          cat >> buildstream-ci.conf <<BSTCONFCACHE
         artifacts:
           servers:
           - url: https://cache.projectbluefin.io:11002
-            push: true
+            push: ${PUSH_FLAG}
             connection-config:
               keepalive-time: 180
               retry-limit: 5
@@ -72,7 +79,7 @@ runs:
         source-caches:
           servers:
           - url: https://cache.projectbluefin.io:11002
-            push: true
+            push: ${PUSH_FLAG}
             connection-config:
               keepalive-time: 180
               retry-limit: 5
@@ -82,8 +89,25 @@ runs:
               client-key: /src/client.key
               client-cert: /src/client.crt
 
-        cache:
-          storage-service:
+        BSTCONFCACHE
+
+          # Top-level storage-service (under cache:) is ONLY for enable-push: true.
+          # Remote execution uses the NESTED storage-service inside remote-execution: block.
+          # NEVER add top-level storage-service when only RE is enabled — it puts casd
+          # in proxy mode and causes gRPC flooding. See docs/skills/ci.md.
+
+          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
+            # IMPORTANT: storage-service is NESTED inside remote-execution, NOT at
+            # the top-level cache: block. This satisfies BST's validation requirement
+            # ("Remote execution requires storage-service") without putting buildbox-casd
+            # into write-through proxy mode (--cas-remote). Top-level cache.storage-service
+            # routes ALL casd operations through the remote and causes gRPC connection drops
+            # after ~3.5 hours. The nested form only affects per-action RE blob transfers
+            # (transient connections), avoiding the sustained stream that killed builds.
+            # See docs/skills/ci.md "Remote Execution with Nested storage-service".
+            cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
+        remote-execution:
+          execution-service:
             url: https://cache.projectbluefin.io:11002
             connection-config:
               keepalive-time: 180
@@ -93,12 +117,7 @@ runs:
             auth:
               client-key: /src/client.key
               client-cert: /src/client.crt
-        BSTCONFCACHE
-
-          if [[ "$ENABLE_REMOTE_EXECUTION" == "true" ]]; then
-            cat >> buildstream-ci.conf <<'BSTCONFREMOTE'
-        remote-execution:
-          execution-service:
+          storage-service:
             url: https://cache.projectbluefin.io:11002
             connection-config:
               keepalive-time: 180
@@ -122,5 +141,71 @@ runs:
           fi
         fi
 
+        # Write the unified cache configuration block to avoid duplicate keys.
+        cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
+
+        cache:
+          cache-buildtrees: never
+        BSTCONFCACHEBLOCK
+
+        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
+          if [[ "${ENABLE_PUSH:-true}" == "true" ]]; then
+            cat >> buildstream-ci.conf <<'BSTCONFSTORAGE'
+          storage-service:
+            url: https://cache.projectbluefin.io:11002
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+        BSTCONFSTORAGE
+          fi
+        fi
+
         echo "=== BuildStream CI config ==="
         cat buildstream-ci.conf
+
+        # Always generate a push-only config for the post-build artifact push step.
+        # push: true so bst artifact push can write; no storage-service so casd
+        # stays local and there is no sustained gRPC stream during the push phase.
+        if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
+          cat > buildstream-push.conf <<'BSTCONFPUSH'
+        scheduler:
+          on-error: continue
+          fetchers: 32
+          builders: 4
+          network-retries: 3
+
+        logging:
+          message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
+          error-lines: 80
+
+        cachedir: /root/.cache/buildstream
+        logdir: /src/logs
+
+        build:
+          retry-failed: True
+
+        cache:
+          cache-buildtrees: never
+
+        artifacts:
+          servers:
+          - url: https://cache.projectbluefin.io:11002
+            push: true
+            connection-config:
+              keepalive-time: 180
+              retry-limit: 5
+              retry-delay: 1000
+              request-timeout: 180
+            auth:
+              client-key: /src/client.key
+              client-cert: /src/client.crt
+
+        BSTCONFPUSH
+          echo "=== BuildStream push config ==="
+          cat buildstream-push.conf
+        fi

@@ -62,7 +62,12 @@ bst *ARGS:
 
 # Validate BST element graph — mirrors CI validate job.
 [group('dev')]
+check-publish-workflow:
+    python3 scripts/check_publish_workflow.py
+
+[group('dev')]
 validate:
+    just check-publish-workflow
     just bst show --deps all oci/bluefin.bst
     just bst show --deps all oci/bluefin-nvidia.bst
 
@@ -160,6 +165,10 @@ export variant="default":
     # Squash, inject build-date VERSION_ID, and apply dynamic labels.
     # BST has no string option type, so VERSION_ID is set to "0" in os-release.bst
     # and replaced here at export time — after the BST cache key is already fixed.
+    # Reverts the buildah mount+commit approach from f8b80d4: buildah is not
+    # available in quay.io/podman/stable (breaks local builds and Argo pipeline)
+    # and the multi-layer output breaks composefs xattr injection in chunka.
+    # Fixes: projectbluefin/dakota#841 (boot failure on :testing 2026-06-13)
     DATE_TAG="$(date -u +%Y%m%d)"
     # shellcheck disable=SC2086
     printf 'FROM %s\nRUN sed -i "s/^VERSION_ID=.*/VERSION_ID=\\"%s\\"/" /usr/lib/os-release \\\n    && sed -i "s/^IMAGE_VERSION=.*/IMAGE_VERSION=\\"%s\\"/" /usr/lib/os-release\n' "$IMAGE_ID" "$DATE_TAG" "$DATE_TAG" \
@@ -169,6 +178,32 @@ export variant="default":
     echo "==> Export complete. Image loaded as ${FINAL_NAME}:${FINAL_TAG}"
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
+# Push exported image to a local zot registry for lab testing.
+[group('dev')]
+push-local registry="localhost:5000":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    SOURCE_REF="{{image_name}}:{{image_tag}}"
+    TARGET_REF="{{registry}}/{{image_name}}:{{image_tag}}"
+
+    if ! $SUDO_CMD podman image exists "$SOURCE_REF"; then
+        echo "ERROR: Image '$SOURCE_REF' not found in podman." >&2
+        echo "Run 'just export' first." >&2
+        exit 1
+    fi
+
+    trap '$SUDO_CMD podman rmi "$TARGET_REF" >/dev/null 2>&1 || true' EXIT
+
+    echo "==> Tagging $SOURCE_REF as $TARGET_REF"
+    $SUDO_CMD podman tag "$SOURCE_REF" "$TARGET_REF"
+    echo "==> Pushing $TARGET_REF"
+    $SUDO_CMD podman push "$TARGET_REF"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -177,7 +212,9 @@ clean:
     rm -f bootable.raw .ovmf-vars.fd
     rm -rf .build-out
 
-# ── Containerfile build (alternative) ────────────────────────────────
+# ── Containerfile build (lint helper only) ───────────────────────────
+# This is not Dakota's package assembly path.
+# Real image content changes happen in BuildStream elements and `just build`.
 [group('build')]
 build-containerfile $image_name=image_name:
     sudo podman build --security-opt label=type:unconfined_t --squash-all -t "${image_name}:latest" .
@@ -518,10 +555,11 @@ show-me-the-future:
     fi
 
 # ── Chunkah ──────────────────────────────────────────────────────────
-# Use the pre-built chunkah image from quay.io
-# TODO: once coreos/chunkah#113 lands (libc fallback for xattr reads),
-# the overlay + xattr-apply step can be removed. chunkah can then be run
-# with LD_PRELOAD=fakecap.so FAKECAP_MANIFEST=.../fakecap-manifest.tsv.
+# Use the pre-built chunkah image from quay.io (v0.6.0).
+# coreos/chunkah#113 is closed — the resolution is this physical overlay+xattr
+# approach, not a libc fallback in chunkah. The overlay+fakecap-restore path
+# remains required because chunkah's rustix xattr backend uses raw syscalls that
+# bypass LD_PRELOAD, so xattrs must be physically applied to a writable overlay.
 # See also: projectbluefin/dakota#231.
 chunkify image_ref:
     #!/usr/bin/env bash
@@ -565,7 +603,21 @@ chunkify image_ref:
     }
     trap cleanup EXIT
 
-    UPPER=$(mktemp -d -p /var/tmp); WORK=$(mktemp -d -p /var/tmp); MERGED=$(mktemp -d -p /var/tmp)
+    # Pick the tmpdir with the most free space for the overlay work dirs.
+    # fakecap-restore triggers overlayfs copy-up for every file it touches
+    # (700K+ entries); copy-ups can exhaust /var/tmp on machines where root
+    # has little free space (e.g. CI runners with a BTRFS loopback for
+    # /var/lib/containers).  Mirror the same logic used in chunka@v1.
+    _OVERLAY_TMPDIR="/var/tmp"
+    for _candidate in /var/lib/containers /var/tmp; do
+        if [ -d "$_candidate" ]; then
+            _free=$(df --output=avail "$_candidate" 2>/dev/null | tail -1 || echo 0)
+            _best=$(df --output=avail "$_OVERLAY_TMPDIR" 2>/dev/null | tail -1 || echo 0)
+            if (( _free > _best )); then _OVERLAY_TMPDIR="$_candidate"; fi
+        fi
+    done
+    echo "==> overlay tmpdir: ${_OVERLAY_TMPDIR} ($(df -h --output=avail "${_OVERLAY_TMPDIR}" | tail -1 | tr -d ' ') free)"
+    UPPER=$(mktemp -d -p "$_OVERLAY_TMPDIR"); WORK=$(mktemp -d -p "$_OVERLAY_TMPDIR"); MERGED=$(mktemp -d -p "$_OVERLAY_TMPDIR")
     $SUDO_CMD chmod 755 "$UPPER" "$WORK" "$MERGED"
     $SUDO_CMD mount -t overlay overlay \
         -o "lowerdir=${LOWER},upperdir=${UPPER},workdir=${WORK}" \
@@ -577,9 +629,11 @@ chunkify image_ref:
     # Run chunkah against the overlay (bind-mounted read-only).
     # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
-    # chunkah image pinned by tag+digest for reproducibility
+    # chunkah image pinned by tag+digest for reproducibility.
     # Pre-pull with retries so transient registry 5xx errors don't abort the run.
-    CHUNKAH_REF="quay.io/coreos/chunkah:v0.5.0@sha256:352097f3d32186ac11082f8b74cd544678b00388b50c96ba5c8e79503a454fe3"
+    # Note: coreos/chunkah#113 was closed — the resolution is this overlay+xattr approach,
+    # not a libc fallback in chunkah. The overlay+fakecap path stays required.
+    CHUNKAH_REF="quay.io/coreos/chunkah:v0.6.0@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708"
     for attempt in 1 2 3; do
         $SUDO_CMD podman pull "$CHUNKAH_REF" && break
         echo "==> chunkah pull attempt $attempt failed, retrying in 10s..."
@@ -662,6 +716,125 @@ boot-fast: _ensure-bcvk
         --memory "{{vm_ram}}M" \
         --vcpus "{{vm_cpus}}" \
         "localhost/{{image_name}}:{{image_tag}}"
+
+# Interactive debug session — boots the image, captures serial console and systemd
+# journal on exit. Artifacts are saved to ./debug-session/ for bug reports.
+# Requires: bcvk, qemu-kvm, virtiofsd
+[group('test')]
+debug-session: _ensure-bcvk
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    VM_NAME="dakota-debug-$$"
+    SESSION_DIR="./debug-session"
+    START_TS=$(date +%s)
+
+    # Use sudo unless already root
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ]; then
+        SUDO_CMD="sudo"
+    fi
+
+    if ! $SUDO_CMD podman image exists "{{image_name}}:{{image_tag}}"; then
+        echo "ERROR: Image '{{image_name}}:{{image_tag}}' not found in podman." >&2
+        echo "Run 'just build' first to build and export the OCI image." >&2
+        exit 1
+    fi
+
+    cleanup() {
+        set +e
+        END_TS=$(date +%s)
+        DURATION=$((END_TS - START_TS))
+
+        # Capture console log via podman logs (works even if guest hung/crashed)
+        $SUDO_CMD podman logs "$VM_NAME" > "${SESSION_DIR}/serial.log" 2>/dev/null || true
+
+        # Capture journal and summary via SSH if VM is still reachable
+        KERNEL="unknown"
+        FAILED_DISPLAY="none"
+        if $SUDO_CMD bcvk ephemeral ssh "$VM_NAME" -- true 2>/dev/null; then
+            echo "==> Capturing systemd journal..."
+            $SUDO_CMD bcvk ephemeral ssh "$VM_NAME" -- journalctl -b --no-pager > "${SESSION_DIR}/journal.log" 2>/dev/null || true
+
+            KERNEL=$($SUDO_CMD bcvk ephemeral ssh "$VM_NAME" -- uname -r 2>/dev/null || echo "unknown")
+            FAILED=$($SUDO_CMD bcvk ephemeral ssh "$VM_NAME" -- systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{print $1}' | head -10 | paste -sd ',' 2>/dev/null || true)
+            if [ -n "$FAILED" ]; then FAILED_DISPLAY="$FAILED"; fi
+        fi
+
+        {
+            echo "Debug session: {{image_name}}:{{image_tag}}"
+            echo "Duration: ${DURATION}s"
+            echo "Kernel: ${KERNEL}"
+            echo "Failed units: ${FAILED_DISPLAY}"
+            echo ""
+            echo "Artifacts:"
+            echo "  serial.log   — full serial console from boot"
+            echo "  journal.log  — systemd journal from this boot"
+            echo "  summary.txt  — this file"
+            echo ""
+            echo "Include these artifacts when filing an issue at:"
+            echo "  https://github.com/projectbluefin/dakota/issues/new?template=bug-report.yml"
+        } > "${SESSION_DIR}/summary.txt"
+
+        echo ""
+        echo "==> Debug session artifacts in ${SESSION_DIR}/"
+        if [[ -f "${SESSION_DIR}/serial.log" ]]; then
+            echo "    serial.log   ($(du -sh "${SESSION_DIR}/serial.log" | cut -f1)) — full serial console from boot"
+        fi
+        if [[ -f "${SESSION_DIR}/journal.log" ]]; then
+            echo "    journal.log  ($(du -sh "${SESSION_DIR}/journal.log" | cut -f1)) — systemd journal from this boot"
+        fi
+        if [[ -f "${SESSION_DIR}/summary.txt" ]]; then
+            echo "    summary.txt  — session summary"
+        fi
+        echo ""
+        echo "File an issue with the artifacts above:"
+        echo "  https://github.com/projectbluefin/dakota/issues/new?template=bug-report.yml"
+
+        echo "==> Tearing down VM ${VM_NAME}..."
+        $SUDO_CMD bcvk ephemeral rm -f "$VM_NAME" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+
+    mkdir -p "${SESSION_DIR}"
+
+    echo "==> debug-session: booting {{image_name}}:{{image_tag}} with serial capture..."
+    echo "    RAM: {{vm_ram}}M, CPUs: {{vm_cpus}}"
+    echo "    Artifacts will be saved to ${SESSION_DIR}/"
+    echo ""
+
+    # Launch VM detached; -K enables bcvk ephemeral ssh, --console routes guest
+    # serial output to podman logs for reliable capture even when guest is hung
+    $SUDO_CMD bcvk ephemeral run -d --rm -K --console \
+        --memory "{{vm_ram}}M" \
+        --vcpus "{{vm_cpus}}" \
+        --name "$VM_NAME" \
+        "localhost/{{image_name}}:{{image_tag}}"
+
+    # Wait for SSH to become available
+    echo "==> Waiting for VM to boot..."
+    ELAPSED=0
+    TIMEOUT=120
+    while [ $ELAPSED -lt "$TIMEOUT" ]; do
+        if $SUDO_CMD bcvk ephemeral ssh "$VM_NAME" -- true 2>/dev/null; then
+            break
+        fi
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
+        printf '.' >&2
+    done
+    echo ""
+
+    if [ $ELAPSED -ge "$TIMEOUT" ]; then
+        echo "FAIL: SSH did not become available within ${TIMEOUT}s" >&2
+        exit 1
+    fi
+    echo "==> VM ready after ~${ELAPSED}s. Starting interactive session."
+    echo "    Reproduce your bug here. Exit the shell when done (Ctrl+D)."
+    echo ""
+
+    # Drop user into interactive SSH session
+    $SUDO_CMD bcvk ephemeral ssh "$VM_NAME"
 
 # Automated boot smoke test — boots the image, verifies GDM starts, exits 0/1.
 # Non-interactive. Intended for CI and agent verification loops.
@@ -786,7 +959,9 @@ sbom variant="default":
         *) echo "ERROR: unknown variant '{{variant}}' (expected: default | nvidia)" >&2; exit 1 ;;
     esac
 
-    # Persist the snakeoil key cache so bst show runs silently (see bst recipe).
+    # Persist host-side caches before bind-mounting them into podman.
+    # actions/cache restores archives but does not create missing directories on a cold miss.
+    mkdir -p "${HOME}/.cache/buildstream"
     mkdir -p "${HOME}/.config/buildstream-generate"
     GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
     # Prime the generated source plugin cache (snakeoil secureboot keys).
@@ -796,9 +971,8 @@ sbom variant="default":
     # cache is warm before buildstream-sbom runs.
     echo "==> Priming BST generated source cache (${ELEMENT})..."
     podman run --rm \
-        --privileged \
-        --device /dev/fuse \
         --network=host \
+        --runtime runc \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
@@ -808,16 +982,20 @@ sbom variant="default":
         2>/dev/null || true
 
     echo "==> Generating BST-native SBOM with buildstream-sbom (${ELEMENT} → ${OUTFILE})..."
+    # Ensure pip cache directory exists before podman bind-mount.
+    # actions/cache does not create the path on a cold cache miss; podman
+    # refuses to start (exit 125) if the host-side directory is absent.
+    mkdir -p "${HOME}/.cache/pip"
     # Pinned to commit 0706fec3 (2026-04-01) — latest main, includes element
     # names in SPDX output (issue #9 fix). Switch to a versioned PyPI release
     # once the project publishes one.
     podman run --rm \
-        --privileged \
-        --device /dev/fuse \
         --network=host \
+        --runtime runc \
         -v "{{justfile_directory()}}:/src:rw" \
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -v "${HOME}/.config/buildstream-generate:/root/.config/buildstream-generate:rw" \
+        -v "${HOME}/.cache/pip:/root/.cache/pip:rw" \
         -w /src \
         -e ELEMENT="${ELEMENT}" \
         -e SPDX_NAME="${SPDX_NAME}" \

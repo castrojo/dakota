@@ -1,73 +1,43 @@
 {
-  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
-  extends: [
-    'config:best-practices',
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>projectbluefin/renovate-config:org-inherited-config"
   ],
-  automerge: true,
-  automergeType: 'pr',
-  platformAutomerge: true,
-  rebaseWhen: 'conflicted',
-  customManagers: [
+  // Renovate targets the testing staging branch. PRs land on testing first,
+  // are built and validated, then the promote-testing-to-main workflow opens a
+  // squash PR to advance main (triggering :stable promotion). This matches the
+  // bluefin/bluefin-lts model. Renovate PRs targeting testing are explicitly
+  // exempted from the "must target main" gate in pr-triage.yml.
+  // Note: track-bst-sources.yml manages BuildStream refs directly and
+  // intentionally targets main — it is not Renovate-managed.
+  "baseBranchPatterns": ["testing"],
+  "branchPrefix": "renovate/",
+
+  // Limit Renovate to GitHub Actions and workflow image refs.
+  // BuildStream sources are tracked separately by track-bst-sources.yml.
+  "enabledManagers": ["github-actions"],
+
+  "packageRules": [
     {
-      customType: 'regex',
-      managerFilePatterns: [
-        '/\\.github/workflows/build\\.yml$/',
-        '/\\.github/workflows/track-bst-sources\\.yml$/',
-        '/^Justfile$/',
-      ],
-      matchStrings: [
-        '(?:BST2_IMAGE[":]\\s*|bst2_image\\s*:=\\s*env\\("BST2_IMAGE",\\s*")(?<depName>registry\\.gitlab\\.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2):(?<currentValue>[a-f0-9]+)"?',
-      ],
-      datasourceTemplate: 'docker',
-      versioningTemplate: 'loose',
+      "description": "Automerge digest/pin/patch/minor when CI passes",
+      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "labels": ["chore/deps", "automerge"]
     },
     {
-      customType: 'regex',
-      managerFilePatterns: [
-        '/elements/plugins/.*\\.bst$/',
-      ],
-      matchStrings: [
-        'url:\\s*pypi:[a-f0-9/]+/(?<depName>buildstream[-_]plugins(?:[-_]community)?)-(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.tar\\.gz\\n\\s+ref:\\s*(?<currentDigest>[a-f0-9]{64})',
-      ],
-      datasourceTemplate: 'pypi',
-      versioningTemplate: 'pep440',
+      "description": "Pin all GitHub Actions to full SHA digests",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "pinDigests": true
     },
     {
-      customType: 'regex',
-      managerFilePatterns: [
-        '/^Justfile$/',
-      ],
-      matchStrings: [
-        'CHUNKAH_REF="(?<depName>quay\\.io/coreos/chunkah):(?<currentValue>v[^@]+)@(?<currentDigest>sha256:[a-f0-9]{64})"',
-      ],
-      datasourceTemplate: 'docker',
-    },
-  ],
-  packageRules: [
-    {
-      enabled: false,
-      matchDepNames: [
-        '/^ghcr.io/projectbluefin//',
-      ],
-    },
-    {
-      automerge: true,
-      matchManagers: [
-        'github-actions',
-        'custom.regex',
-      ],
-    },
-    {
-      groupName: 'GitHub Actions',
-      matchManagers: [
-        'github-actions',
-      ],
-    },
-    {
-      groupName: 'bst2 container image',
-      matchDepNames: [
-        'registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2',
-      ],
-    },
-  ],
+      // All projectbluefin/* actions are org-managed — @v1 tags or @main are
+      // intentional. Renovate must not touch them.
+      "matchDepNames": ["/^projectbluefin\\//"],
+      "enabled": false,
+      "pinDigests": false
+    }
+  ]
 }

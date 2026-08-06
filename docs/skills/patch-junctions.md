@@ -1,11 +1,32 @@
+---
+
+name: patch-junctions
+description: Lifecycle for patches applied to upstream junctions (freedesktop-sdk, gnome-build-meta). Covers adding patches, required Upstream-Status headers, rebasing after junction bumps, and dropping upstreamed patches. Use when patching junction content, rebasing patch queues after a bump, or removing patches that landed upstream.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
+
 # Patching Junction Elements
 
 Load when modifying upstream freedesktop-sdk or gnome-build-meta elements in dakota, or when fixing bugs in junction dependencies.
+
+## When to Use
+
+Use when an upstream junction dependency needs a local patch in Dakota or when maintaining/rebasing an existing junction patch queue.
 
 ## When NOT to Use
 
 - Understanding when to override vs. not → `bst-overrides.md`
 - Bumping a junction ref without patch changes → `update-refs.md`
+
+## Core Process
+
+1. Confirm a patch is really needed and not just a junction bump.
+2. Add the patch with the required metadata/header.
+3. Track the upstream status explicitly.
+4. Rebase or drop the patch as upstream moves.
+5. Keep the queue minimal and ordered.
 
 ## Overview
 
@@ -132,6 +153,28 @@ When the upstream junction ref includes the fix:
 | `patch_queue` source not in junction `.bst` | Must be declared as a source in the junction element |
 | Multiple patches conflict | Check filename ordering — earlier patches may change context for later ones |
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll add the patch now and upstream it later." | That is how patch queues become permanent. |
+| "One more local patch is cheap." | Every local junction patch compounds rebase debt. |
+| "Filename order probably won't matter here." | The queue is order-sensitive. Treat it that way. |
+
+## Red Flags
+
+- Patch with no upstream tracking reference
+- Missing or weak `Upstream-Status` metadata
+- Queue growth without drop/rebase discipline
+- Local patch solving something a junction bump already fixed
+
+## Verification
+
+- [ ] Patch was justified over a simple junction bump
+- [ ] Upstream tracking/status is explicit
+- [ ] Queue ordering and rebase implications were considered
+- [ ] There is a clear path to drop the patch later
+
 ## Lessons Learned
 
 ### Junction patch rebase when upstream bumps a junction ref
@@ -148,5 +191,39 @@ grep -n 'MODULE_NAME_HERE' /tmp/<junction>-work/files/linux/fdsdk-config.sh
 
 BST source cache is available locally: `~/.cache/buildstream/sources/git_repo/`. No network needed for rebase work.
 
+### countme service uses PLATFORM_ID for Fedora base version
+
+`elements/oci/os-release.bst` now includes `PLATFORM_ID: "platform:f42"` (standard Fedora os-release field). The `/usr/libexec/dakota-countme` script reads this at runtime to derive `fedora-NN` for the Fedora metalink URL.
+
+**When bumping gnome-build-meta to a new Fedora base, update PLATFORM_ID in `elements/oci/os-release.bst` in the same commit:**
+
+```bash
+# In elements/oci/os-release.bst, update:
+  PLATFORM_ID: "platform:f43"   # ← bump this when Fedora base changes
+```
+
+Forgetting this means countme pings the wrong Fedora metalink repo. The script has no fallback — it will 404 silently (curl -sf suppresses errors).
+
 > Add further entries here when you discover a new pattern.
 > Format: `### <pattern name> (YYYY-MM-DD)`
+
+### Patch context lines break when upstream bumps a source ref (2026-06-23)
+
+When gnome-build-meta bumps an element's upstream source ref (e.g. `gnome-initial-setup.bst` advances from `50.0-65-g4472cba` to `50.0-66-g77be510d`), any `patch_queue` patch that removes the old ref line (`-  ref: <old>`) will fail to apply even though no functional code changed.
+
+**Symptom:** CI fails at `bst show` / validate step with:
+```
+error: patch failed: elements/core/<element>.bst:2
+error: elements/core/<element>.bst: patch does not apply
+FAILURE gnome-build-meta.bst: patch_queue source [...]: Failed to apply patches from patches/gnome-build-meta
+```
+
+**Fix:** Update the removal context line in the patch from the old ref to the new ref. The `+` lines (new fork/ref being substituted in) are unchanged.
+
+```diff
+ # In patches/gnome-build-meta/0003-homed-Add-systemd-homed-support.patch:
+--  ref: 50.0-65-g4472cba3e9540f75fec272fd6d6d3acd90e00d1d
++-  ref: 50.0-66-g77be510de42c5b14c0967b6f61609990d0c2505b
+```
+
+The `index <old>..<new> 100644` line in the patch does NOT need updating — `git apply` without `--index` ignores it.

@@ -1,12 +1,32 @@
+---
+
+name: packaging-go
+description: Packages a Go project from source using BST go_module sources or a vendored GOPATH tarball. Note: all current Go tools in Dakota use pre-built binaries — load packaging-binaries.md first to confirm source build is truly needed. Use when a Go project must be built from source in Dakota instead of consuming an upstream release binary.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
+
 # Packaging Go Projects
 
 Load when packaging a Go project for dakota/Bluefin BuildStream, or when setting up GOPATH vendoring in BuildStream.
+
+## When to Use
+
+Use when a Go project truly needs a source build in Dakota and pre-built binaries are not the better path.
 
 ## When NOT to Use
 
 - Rust project → `packaging-rust.md`
 - Zig project → `packaging-zig.md`
 - Pre-built binary → `packaging-binaries.md`
+
+## Core Process
+
+1. Confirm source packaging is actually needed.
+2. Pick the vendoring pattern (`go_module` vs embedded GOPATH tarball).
+3. Ensure the build is fully offline inside BST.
+4. Validate the produced binary layout and runtime behavior.
 
 ## Go Build Approach in BST
 
@@ -129,7 +149,45 @@ install-commands:
 - [ ] `just validate` passes
 - [ ] `just bst build bluefin/<name>.bst` passes
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "It's Go, so I can just let it download modules." | Not inside network-isolated BST builds. |
+| "Source build is more pure, so always do that." | Dakota already prefers pre-built binaries for many Go tools when that is the lazier correct path. |
+| "One vendoring strategy fits all Go projects." | Pick the smaller maintenance burden that actually matches the project. |
+
+## Red Flags
+
+- Network-dependent Go build steps
+- Choosing source packaging without checking `packaging-binaries.md` first
+- Missing vendored dependency material in the element sources
+- Treating GOPATH/module layout as an implementation detail you can hand-wave
+
+## Verification
+
+- [ ] Source build was justified over binary packaging
+- [ ] All Go deps are available offline in BST
+- [ ] The chosen vendoring pattern matches the project
+- [ ] The final staged binary layout is correct
+
 ## Lessons Learned
 
-> Add entries here when you discover a new pattern or fix a recurring mistake.
-> Format: `### <pattern name> (YYYY-MM-DD)`
+### All current Go tools in Dakota are pre-built binaries — not Go-from-source builds (2026-06-07)
+
+As of June 2026, every Go-based tool in Dakota uses `kind: manual` with pre-built binaries
+from GitHub Releases. `glow.bst`, `gum.bst`, and `fzf.bst` are all pre-built binary elements,
+not Go source builds. See `packaging-binaries.md` for the pre-built pattern.
+
+Go-from-source build infrastructure (this skill) exists for future use when a required tool
+doesn't provide static binaries. Do not reach for this skill unless upstream truly has no
+release binaries — pre-built is simpler and faster to maintain.
+
+### Vendored GOPATH tarball requires a build host with Go to generate (2026-06-07)
+
+Pattern 2 (vendored GOPATH tarball) requires running `go mod vendor` on the host to create
+the tarball before the element can be written. Unlike cargo2 (where the generator script
+reads from the source), the Go vendor tarball must be generated offline and uploaded
+separately. Factor in this extra maintenance step when deciding between Pattern 1 and
+Pattern 2 — Pattern 1 (go_module sources) is more maintainable long-term because refs
+can be updated in-place.

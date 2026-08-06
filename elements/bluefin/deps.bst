@@ -1,3 +1,6 @@
+# Historical path note: despite the directory name, this is Dakota's package
+# manifest. Add or remove image content via `.bst` elements here — never via
+# dnf/RPM/Containerfile overlay logic.
 kind: stack
 
 depends:
@@ -14,15 +17,15 @@ depends:
 
   - bluefin/ghostty.bst
 
-  - bluefin/glow.bst
   - bluefin/gum.bst
-  - bluefin/fzf.bst
   - bluefin/tealdeer.bst
+  - bluefin/umotd.bst
 
   - bluefin/common.bst
+  - bluefin/user-avatars.bst
   - bluefin/just-overrides.bst
-  - bluefin/motd.bst
   - bluefin/firstboot-date.bst
+  - bluefin/firstboot-services.bst
   - bluefin/wallpaper-month.bst
   - bluefin/bootc-install-config.bst
   - bluefin/composefs-loop-udisks-ignore.bst
@@ -30,15 +33,15 @@ depends:
   - bluefin/papers-thumbnailer.bst
   - bluefin/wallpapers.bst
 
-  - bluefin/jetbrains-mono.bst
-  - bluefin/jetbrains-mono-nerd-font.bst
-
   - bluefin/uutils-coreutils.bst
   - bluefin/sudo-rs.bst
   - bluefin/efibootmgr.bst
   - bluefin/xdg-terminal-exec.bst
   - bluefin/nautilus-python.bst
+  - bluefin/gnome-ponytail-daemon.bst
   - bluefin/network.bst
+  - bluefin/countme.bst
+  # - bluefin/lsp-plugins-lv2.bst
 
   # Include things missing from the gnomeos base image
   - gnome-build-meta.bst:core-deps/fwupd.bst
@@ -50,6 +53,7 @@ depends:
   - freedesktop-sdk.bst:components/git.bst
   - freedesktop-sdk.bst:components/podman.bst
   - freedesktop-sdk.bst:components/skopeo.bst
+  - freedesktop-sdk.bst:components/flatpak-builder.bst
 
   - freedesktop-sdk.bst:components/bpf.bst
   - freedesktop-sdk.bst:components/vmlinuxh.bst
@@ -59,3 +63,12 @@ depends:
   - bluefin/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
+
+  - bluefin/bindmounts.bst
+
+  - gnome-build-meta.bst:gnomeos-deps/snapd.bst
+
+  # Incus — system container & VM manager. Pulls in its from-source native
+  # stack (cowsql/raft/libuv, liblxc, lxcfs) via runtime-depends; the QEMU /
+  # dnsmasq / nftables / storage tooling it needs already lives in the junctions.
+  - bluefin/incus.bst

@@ -1,12 +1,33 @@
+---
+
+name: oci-layers
+description: Explains how packages flow from BST elements into the final OCI image layer. Covers compose vs stack kinds, BST weak-key caching bug, and layer verification. Use when packages go missing from the built image, when modifying layer assembly, or when checking why a successful build produced an empty layer.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
+
 # OCI Layers and Image Assembly
 
 Load when understanding how packages flow into the final OCI image, modifying layer assembly, or debugging why files appear or are missing from the built image.
+
+## When to Use
+
+Use when a package builds but disappears from the image, when editing OCI layer assembly, or when you need to trace files from element to final image.
 
 ## When NOT to Use
 
 - Writing individual element files → `buildstream.md`
 - Debugging individual element build failures → `debugging.md`
 - Understanding the CI build pipeline → `ci.md`
+
+## Core Process
+
+1. Trace the package from element → stack → compose layer → OCI assembly.
+2. Confirm the producing element is wired into the correct dependency stack.
+3. Confirm the layer stage is `compose` when filesystem output is expected.
+4. Inspect built artifact contents before blaming later OCI assembly steps.
+5. Re-check cache behavior if the graph is right but the image is stale.
 
 ## Assembly Architecture
 
@@ -22,6 +43,10 @@ elements/oci/bluefin.bst            ← kind: script (final OCI assembly)
   └── depends on: layers/bluefin.bst + tooling
   └── runs: build-oci script to assemble the image
 ```
+
+Historical path note: the `bluefin` filenames above are Dakota's OCI assembly
+paths. They are not a sign to switch to the separate bluefin repo's
+Containerfile-overlay workflow.
 
 ## Critical: `kind: compose` vs `kind: stack`
 
@@ -47,7 +72,7 @@ grep "^kind:" elements/oci/layers/bluefin.bst
 
 ```yaml
 kind: compose
-description: Bluefin image layer
+description: Dakota image layer (historical bluefin path name)
 depends:
 - deps.bst
 - filename: freedesktop-sdk.bst:elements/base/base.bst
@@ -112,7 +137,47 @@ sudo podman run --rm <image> which <binary> # check binary exists
 sudo podman run --rm <image> find /usr/lib/systemd -name "<service>.service"
 ```
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The package built, so it must be in the image." | Not if it never made it through stack/compose wiring. |
+| "`stack` is fine; it depends on the right things." | `stack` produces no filesystem output. |
+| "Missing image content means the build failed." | It may be wiring or cache invalidation instead. |
+
+## Red Flags
+
+- `kind: stack` used where a layer must emit files
+- Debugging OCI assembly before inspecting element artifact contents
+- Assuming cache hits imply correct image contents
+- Editing final OCI script when the real bug is earlier compose wiring
+
+## Verification
+
+- [ ] The file path was traced through element, stack, compose, and OCI assembly
+- [ ] Filesystem-producing layers use `compose`
+- [ ] Artifact contents were inspected before changing OCI assembly logic
+- [ ] Cache behavior was considered when the graph looked correct but output was stale
+
 ## Lessons Learned
 
-> Add entries here when you discover a new pattern or fix a recurring mistake.
-> Format: `### <pattern name> (YYYY-MM-DD)`
+### New package in deps.bst missing from image after a successful build (2026-06-07)
+
+This is always the BST weak-key caching bug. The package was built but the OCI layer was not rebuilt. Symptom: `just bst artifact list-contents bluefin/<name>.bst` shows files, but `just bst artifact list-contents oci/layers/bluefin.bst | grep <name>` returns nothing.
+
+Fix — force strict-mode rebuild:
+```bash
+just bst --no-cache-buildtrees build oci/bluefin.bst
+```
+
+This is the only reliable fix. Do not spend time debugging the element itself; the element is fine.
+
+### dconf update must run before ldconfig, ldconfig must run before build-oci (2026-06-07)
+
+The OCI assembly script in `elements/oci/bluefin.bst` must run steps in this exact order:
+1. Merge `/usr/etc` → `/etc`
+2. `dconf update` (compile keyfiles into GVariant databases)
+3. `ldconfig -r /layer` (rebuild library cache)
+4. `build-oci` (assemble image)
+
+Running `ldconfig` after `build-oci` has no effect. Running `build-oci` before `dconf update` produces an image with stale/missing dconf databases.

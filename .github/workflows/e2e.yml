@@ -5,31 +5,26 @@
 # handled there — see:
 #   https://github.com/projectbluefin/testsuite/tree/main/.github/actions/gnome-e2e
 #
-# PRs run 'smoke'. workflow_dispatch can run any supported GUI suite.
+# Only runs on workflow_dispatch — PRs do not publish a testing build first,
+# so running smoke here would test a stale :testing image, not the PR's code.
 
 name: E2E Tests — GNOME 50
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'elements/**'
-      - 'files/**'
-      - 'patches/**'
-      - 'Justfile'
-      - 'project.conf'
   workflow_dispatch:
     inputs:
       image:
-        description: "OCI image to test (default: dakota:latest)"
+        description: "OCI image to test (default: dakota:testing)"
         required: false
-        default: "ghcr.io/projectbluefin/dakota:latest"
+        default: "ghcr.io/projectbluefin/dakota:testing"
       suites:
         description: "Comma-separated GUI suites: smoke,developer,dx,software,vanilla-gnome"
         required: false
         default: "smoke"
 
-permissions: read-all
+permissions:
+  contents: read
+  packages: write  # testsuite pushes desktop screenshot to GHCR
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -37,7 +32,7 @@ concurrency:
 
 jobs:
   e2e:
-    uses: projectbluefin/testsuite/.github/workflows/e2e.yml@main
+    uses: projectbluefin/testsuite/.github/workflows/e2e.yml@v1
     with:
-      image: ${{ github.event.inputs.image || 'ghcr.io/projectbluefin/dakota:latest' }}
+      image: ${{ github.event.inputs.image || 'ghcr.io/projectbluefin/dakota:testing' }}
       suites: ${{ github.event.inputs.suites || 'smoke' }}

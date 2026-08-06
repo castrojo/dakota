@@ -1,20 +1,17 @@
 name: Build Bluefin dakota
 
 on:
+  # Fires daily at 13:00 UTC — 5 hours after the gnome-build-meta nightly
+  # (~08:00 UTC) to absorb nightly deltas before building.
+  # NOTE: schedule triggers run on the default branch; set testing as the
+  # default branch in repo settings for this to target testing.
   schedule:
-    # 13:00 UTC daily — gnome-build-meta nightly starts ~02:00 UTC and typically
-    # finishes by ~08:00 UTC (worst-case ~11:30). The 2-hour buffer here handles
-    # normal build-time fluctuations so dakota always picks up the freshest artifacts.
     - cron: '0 13 * * *'
-  pull_request:
-    branches: [main]
-  merge_group:
-    branches: [main]
   workflow_dispatch:
     # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
-    # require gbm.gnome.org to have built the new ref first. The 13:00 UTC
-    # schedule above provides this buffer. Early dispatch = cold build = timeout.
+    # require gbm.gnome.org to have built the new ref first — dispatch too early
+    # and you get a cold build that times out.
 
 permissions: read-all
 
@@ -22,75 +19,53 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Concurrency: per-ref isolation for all events.
-# - PRs: cancel-in-progress: true drops stale validate runs when a new
-#   push arrives. Safe for other events — merge_group/schedule/dispatch
-#   each use distinct refs and are unaffected by this flag.
-# - merge_group / schedule / dispatch: per-ref queuing, never cancelled.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  # ── Fast PR validation ───────────────────────────────────────────────────
-  # Fires only on pull_request. Runs bst show on the full element graph for
-  # both variants. Zero remote-execution — does not touch cache.projectbluefin.io.
-  # Expected runtime: <15 min (BST cache hit), <30 min (cold start).
-  validate:
-    if: github.event_name == 'pull_request'
+  # ── Default-branch precondition ──────────────────────────────────────────
+  # Scheduled triggers always run on the repository default branch. If the
+  # default branch is not 'testing', the daily build silently targets the
+  # wrong ref. Fail fast and loudly when that invariant is violated.
+  verify-default-branch:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
-    concurrency:
-      group: ${{ github.workflow }}-validate-${{ github.ref }}
-      cancel-in-progress: true
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Check bst2 image pin consistency
-        uses: ./.github/actions/check-bst2-pin
-
-      - name: Setup Just
-        uses: taiki-e/install-action@873c7452cadb7c034694a1282227095d93fbdf92 # v2
-        with:
-          tool: just
-
-      # Cache the BST workspace (junction git sources + bst2 container layers).
-      # Key includes junction element refs so junction bumps start fresh.
-      # Without this, bst show must clone gnome-build-meta + freedesktop-sdk
-      # from scratch on every PR run (~15-25 min extra).
-      - name: Restore BST cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-        with:
-          path: ~/.cache/buildstream
-          key: bst-show-${{ hashFiles('elements/gnome-build-meta.bst', 'elements/freedesktop-sdk.bst', 'Justfile') }}
-          restore-keys: bst-show-
-
-      - name: Validate BST element graph (default)
+      - name: Verify repository default branch is 'testing'
         env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive
-        run: just bst show --deps all oci/bluefin.bst
-
-      - name: Validate BST element graph (nvidia)
-        env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive
-        run: just bst show --deps all oci/bluefin-nvidia.bst
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          db=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .default_branch)
+          if [ "$db" != "testing" ]; then
+            echo "::error::default branch is '$db', expected 'testing'. Daily schedule will silently target wrong branch. Fix repo settings."
+            exit 1
+          fi
 
   # ── Full OCI build ────────────────────────────────────────────────────────
-  # Fires on merge_group, schedule, and workflow_dispatch — NOT on pull_request.
-  # PRs are validated by the validate job above; the full build is the
-  # merge-queue gate. This keeps cache.projectbluefin.io free from PR traffic.
+  # Fires on schedule (daily 13:00 UTC) and workflow_dispatch only.
+  # merge_group is intentionally excluded: the merge queue requires only
+  # `validate` to pass; a full BST build triggered by merge_group is always
+  # cancelled when the PR merges (before the 5h build can finish), which
+  # wastes the CAS slot and starves the scheduled build.
   build:
-    if: github.event_name != 'pull_request'
+    needs: [verify-default-branch]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    # Both variants build in parallel. NVIDIA is continue-on-error so its
-    # failure does not block the default image's merge or publication.
+    # Global BST concurrency: only one BuildStream build may run across
+    # ALL branches and workflows. The remote CAS at cache.projectbluefin.io
+    # is rate-limited and supports a single build at a time — concurrent
+    # builds tank cache hit rate and risk 6-hour timeouts. The same group
+    # name is used by nightly-next-build.yml so cross-workflow dispatch
+    # also serializes here. cancel-in-progress: false so an in-flight
+    # build on one branch is never killed by a push to another branch.
+    concurrency:
+      group: dakota-bst-build-global
+      cancel-in-progress: false
+    # Variants build serially — one BST build at a time per the hard rule.
+    # Shared runners and CAS write bandwidth cannot sustain concurrent builds.
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1
       matrix:
         include:
           - variant: default
@@ -115,36 +90,29 @@ jobs:
 
       # FIXME: Make the build with JWT work
       # - name: Get JWT token
-      #   uses: actions/github-script@v7
+      #   previously used actions/github-script (kept disabled)
       #   with:
       #     script: |
       #       const fs = require('fs');
       #       const token = await core.getIDToken('cache.projectbluefin.io')
       #       fs.writeFileSync('bluefin.token', token, { mode: 0o600 });
 
-      - name: Setup Just
-        uses: taiki-e/install-action@873c7452cadb7c034694a1282227095d93fbdf92 # v2
-        with:
-          tool: just
-
       - name: Capture build timestamp
         id: timestamp
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # ── Disk and storage setup ────────────────────────────────────────
-      # Both steps must run before any podman call (BST uses rootful podman
-      # to pull bst2; storage backend must be stable before first use).
-      - name: Remove unwanted software
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
-
-      - name: Mount BTRFS for podman storage
-        id: container-storage
-        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
-        continue-on-error: true
+      # Runs before any podman call (BST uses rootful podman to pull bst2;
+      # storage backend must be stable before first use).
+      # update-podman: true — newer podman from Ubuntu resolute for bst2 pull.
+      # Note: setup-runner btrfs does not pass loopback-free; watch for disk
+      # pressure and upstream the option if needed.
+      - name: Setup runner
+        uses: projectbluefin/actions/bootc-build/setup-runner@v1
         with:
-          target-dir: /var/lib/containers
-          mount-opts: compress-force=zstd:2
-          loopback-free: '1'
+          storage-backend: btrfs
+          update-podman: true
+          install-tools: '["just"]'
 
       # ── Generate CI-specific BuildStream config ───────────────────────
       # Tuned per gnome-build-meta CI patterns:
@@ -161,29 +129,71 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          enable-remote-execution: 'true'
+          # Remote execution dispatches build actions to cache.projectbluefin.io:11002
+          # (16c/32t Ryzen 9 7950X3D). The action nests storage-service INSIDE the
+          # remote-execution: block — this satisfies BST's validation without putting
+          # casd in write-through proxy mode (which caused gRPC drops after 3.5h).
+          #
+          # enable-push stays false: the explicit "Push OCI artifact to remote CAS" step
+          # below handles cache writes atomically after the build succeeds. This avoids
+          # sustained gRPC write streams during the build phase.
+          #
+          # DO NOT add top-level cache.storage-service — that routes ALL casd operations
+          # through the remote and reintroduces the 3.5-hour gRPC flooding failure.
+          # See docs/skills/ci.md "Remote Execution with Nested storage-service".
+          enable-remote-execution: 'false'
+          enable-push: 'false'
 
       # ── BuildStream build ─────────────────────────────────────────────
       # Uses the Justfile's `bst` wrapper to run BuildStream inside the
       # bst2 container. CI-specific flags (--no-interactive, --config)
       # are injected via BST_FLAGS env var.
 
+      # Count the full element graph so the progress script can show %.
+      # bst show only reads element YAML + fetches junction refs — no CAS
+      # traffic, typically <60s. Runs after Generate BuildStream CI config
+      # so the remote CAS address is available.
+      - name: Count elements for progress tracking
+        id: count
+        env:
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+        run: |
+          set +e
+          BST_SHOW_OUT=$(just bst show --deps all --format '%{name}' \
+            ${{ matrix.element }} 2>&1)
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            TOTAL=$(echo "$BST_SHOW_OUT" | wc -l)
+            echo "total=${TOTAL}" >> "$GITHUB_OUTPUT"
+            echo "Element graph: ${TOTAL} elements"
+          else
+            echo "$BST_SHOW_OUT"
+            echo "::warning::bst show failed (rc=${rc}) — progress will show absolute counts only"
+            echo "total=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build OCI image with BuildStream
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+          ELEMENT_TOTAL: ${{ steps.count.outputs.total }}
         run: |
-          just bst build ${{ matrix.element }}
+          # pipefail: propagate non-zero exit from `just bst build` through the pipe
+          set -o pipefail
+          just bst build ${{ matrix.element }} 2>&1 \
+            | python3 files/scripts/bst-progress.py
         timeout-minutes: 330
 
-      # Push the built artifact to the remote CAS so the export job can pull it.
-      # Remote execution may populate the artifact cache implicitly, but an
-      # explicit push guarantees the artifact is there regardless of BST internals.
-      # Push both variants so publish.yml can fetch each from CAS.
+      # Push all locally-built artifacts to remote CAS so publish.yml can export
+      # and the next scheduled build starts warm. Uses buildstream-push.conf
+      # (push: true, no storage-service) so bst artifact push can write without
+      # a sustained gRPC stream during the build phase. --deps run ensures every
+      # runtime element rebuilt locally or pulled during the build is cached.
       - name: Push OCI artifact to remote CAS
         env:
-          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+          BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
         run: |
-          just bst artifact push --deps none ${{ matrix.element }}
+          just bst artifact push --deps run ${{ matrix.element }}
 
       # ── Upload build logs ─────────────────────────────────────────────
       # Always upload, even on failure, so build failures can be diagnosed.
@@ -196,154 +206,3 @@ jobs:
           path: logs/
           retention-days: 7
           if-no-files-found: ignore
-
-  # ── aarch64 native build ──────────────────────────────────────────────────
-  # Mirrors the x86_64 build job. ARM failures do not fail the workflow or
-  # block x86_64 publication — this is an experimental parallel build.
-  # Only runs on the daily cron and manual dispatch — not on PRs or merge
-  # queue — to avoid burning ARM runner time on code that nobody is using yet.
-  # WebKit aarch64 artifacts are available from gbm.gnome.org (gnome-build-meta
-  # builds aarch64 natively), so cold-build OOM/timeout should no longer occur.
-  build-aarch64:
-    if: false  # temporarily disabled — aarch64 needs further investigation
-    runs-on: ubuntu-24.04-arm
-    continue-on-error: true
-    outputs:
-      pushed: ${{ steps.push-aarch64.outputs.pushed }}
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Mount BTRFS for podman storage
-        id: container-storage
-        uses: ublue-os/container-storage-action@dc1f4c8f17b672069e921f001132f7cf98a423a6
-        continue-on-error: true
-        with:
-          target-dir: /var/lib/containers
-          mount-opts: compress-force=zstd:2
-          loopback-free: '1'
-
-      - name: Remove unwanted software
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
-
-      - name: Setup Just
-        uses: taiki-e/install-action@873c7452cadb7c034694a1282227095d93fbdf92 # v2
-        with:
-          tool: just
-
-      - name: Capture build timestamp
-        id: timestamp
-        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Generate BuildStream CI config
-        env:
-          CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
-          CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
-        uses: ./.github/actions/generate-bst-ci-config
-        with:
-          enable-remote-execution: 'false'
-
-      - name: Build OCI image with BuildStream (aarch64)
-        env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64
-        run: |
-          just bst build oci/bluefin.bst
-        timeout-minutes: 420
-
-      - name: Export OCI image from BuildStream
-        id: export
-        env:
-          BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64
-          BUILD_IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          OCI_IMAGE_CREATED: ${{ steps.timestamp.outputs.created }}
-          OCI_IMAGE_REVISION: ${{ github.sha }}
-          OCI_IMAGE_VERSION: aarch64
-        run: |
-          just export
-          echo "image_ref=${{ env.IMAGE_NAME }}:aarch64" >> "$GITHUB_OUTPUT"
-
-      - name: Verify image loaded
-        run: sudo podman images
-
-      - name: Validate with bootc container lint
-        run: |
-           just lint
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: buildstream-logs-aarch64
-          path: logs/
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Login to GHCR
-        if: >-
-          github.event_name == 'merge_group' ||
-          github.event_name == 'schedule' ||
-          github.event_name == 'workflow_dispatch'
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
-
-      - name: Tag image for GHCR
-        if: >-
-          github.event_name == 'merge_group' ||
-          github.event_name == 'schedule' ||
-          github.event_name == 'workflow_dispatch'
-        run: |
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64"
-          sudo podman tag "localhost/${{ steps.export.outputs.image_ref }}" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64-${{ github.sha }}"
-
-      - name: Push to GHCR
-        id: push-aarch64
-        if: >-
-          github.event_name == 'merge_group' ||
-          github.event_name == 'schedule' ||
-          github.event_name == 'workflow_dispatch'
-        run: |
-          for tag in aarch64 "aarch64-${{ github.sha }}"; do
-            for i in 1 2 3; do
-              # Plain zstd required — see x86_64 push step comment above.
-              sudo podman push --compression-format=zstd \
-                "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}" && break
-              echo "Push attempt $i failed for tag ${tag}, retrying..."
-              sleep 5
-            done
-          done
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
-
-  # ── Multi-arch manifest ───────────────────────────────────────────────────
-  # Combines :latest (x86_64) and :aarch64 into a single multi-arch manifest.
-  # Only runs when :aarch64 was actually pushed this run (not just when the
-  # job completed — continue-on-error makes needs.result == 'success' even on
-  # failure, so we gate on the step output instead).
-  # ARM failures skip this job without affecting x86_64 publication.
-  create-manifest:
-    runs-on: ubuntu-24.04
-    needs: [build, build-aarch64]
-    if: >-
-      (github.event_name == 'merge_group' ||
-       github.event_name == 'schedule' ||
-       github.event_name == 'workflow_dispatch') &&
-      needs.build-aarch64.outputs.pushed == 'true'
-    permissions:
-      packages: write
-    steps:
-      - name: Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            sudo podman login ghcr.io --username ${{ github.actor }} --password-stdin
-
-      - name: Create and push multi-arch manifest
-        run: |
-          sudo podman manifest create "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:aarch64"
-          sudo podman manifest push "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"

@@ -40,12 +40,12 @@ depends:
 
 sources:
 - kind: remote
-  url: nvidia:XFree86/Linux-x86_64/595.71.05/NVIDIA-Linux-x86_64-595.71.05.run
-  ref: 36203b8960b7e49c8a42f6ba1f5863cde34a05e93d2b24b798af06dd846f6b82
-  filename: NVIDIA-Linux-x86_64-595.71.05.run
+  url: nvidia:XFree86/Linux-x86_64/610.43.02/NVIDIA-Linux-x86_64-610.43.02.run
+  ref: 3034a054bb4cdf7752ff8dc272564cb105513804bff53538945901b16ca77463
+  filename: NVIDIA-Linux-x86_64-610.43.02.run
 
 variables:
-  nvidia-version: '595.71.05'
+  nvidia-version: '610.43.02'
   strip-binaries: ''
 
 config:
@@ -139,11 +139,22 @@ config:
         libGLESv1_CM_nvidia.so.%{nvidia-version} \
         libGLESv2_nvidia.so.%{nvidia-version} \
         libGLX_nvidia.so.%{nvidia-version} \
+        libnvidia-opencl.so.%{nvidia-version} \
     ; do
         if [ -f "$lib" ]; then
             install -Dm755 "$lib" "$LIBDIR/$lib"
         fi
     done
+
+    # VDPAU GPU driver goes in the vdpau/ sub-directory, not $LIBDIR root.
+    if [ -f "libvdpau_nvidia.so.%{nvidia-version}" ]; then
+        install -Dm755 "libvdpau_nvidia.so.%{nvidia-version}" \
+            "$LIBDIR/vdpau/libvdpau_nvidia.so.%{nvidia-version}"
+        ln -sf "libvdpau_nvidia.so.%{nvidia-version}" \
+            "$LIBDIR/vdpau/libvdpau_nvidia.so.1"
+        ln -sf "libvdpau_nvidia.so.%{nvidia-version}" \
+            "$LIBDIR/vdpau/libvdpau_nvidia.so"
+    fi
 
     # libnvidia-egl-* / libnvidia-vulkan-* use NVIDIA-internal versioning
     # decoupled from the driver version — copy by glob instead of name.
@@ -155,6 +166,7 @@ config:
         'libnvidia-vulkan-producer.so.*' \
         'libnvidia-pkcs11*.so.*' \
         'libnvidia-nvvm.so.*' \
+        'libnvidia-gtk*.so.*' \
     ; do
         for f in $pat; do
             [ -f "$f" ] && install -Dm755 "$f" "$LIBDIR/$f" || true
@@ -187,9 +199,20 @@ config:
         nvidia-cuda-mps-control \
         nvidia-cuda-mps-server \
         nvidia-powerd \
+        nvidia-settings \
     ; do
         [ -f "$bin" ] && install -Dm755 "$bin" "$BINDIR/$bin" || true
     done
+
+    # nvidia-settings desktop file and icon
+    if [ -f nvidia-settings.desktop ]; then
+        install -Dm644 nvidia-settings.desktop \
+            "%{install-root}/usr/share/applications/nvidia-settings.desktop"
+    fi
+    if [ -f nvidia-settings.png ]; then
+        install -Dm644 nvidia-settings.png \
+            "%{install-root}/usr/share/pixmaps/nvidia-settings.png"
+    fi
 
     if [ -f nvidia_icd.json ]; then
         install -Dm644 nvidia_icd.json \
@@ -217,6 +240,30 @@ config:
             [ -f "$fw" ] && install -Dm644 "$fw" \
                 "%{install-root}/usr/lib/firmware/nvidia/%{nvidia-version}/$(basename $fw)" || true
         done
+    fi
+
+    # OpenCL ICD: allows the OpenCL ICD loader to find the NVIDIA implementation.
+    # Path /etc/OpenCL/vendors/ is the ocl-icd default search path.
+    if [ -f nvidia.icd ]; then
+        install -Dm644 nvidia.icd \
+            "%{install-root}/etc/OpenCL/vendors/nvidia.icd"
+    fi
+
+    # Power management: save/restore GPU state across suspend and hibernate.
+    # Without these the GPU context is lost on resume, causing hard locks.
+    SYSTEMD_SYSTEM="%{install-root}/usr/lib/systemd/system"
+    SYSTEMD_SLEEP="%{install-root}/usr/lib/systemd/system-sleep"
+    install -d "$SYSTEMD_SYSTEM" "$SYSTEMD_SLEEP"
+    for svc in \
+        nvidia-hibernate.service \
+        nvidia-resume.service \
+        nvidia-suspend.service \
+        nvidia-suspend-then-hibernate.service \
+    ; do
+        [ -f "$svc" ] && install -Dm644 "$svc" "$SYSTEMD_SYSTEM/$svc" || true
+    done
+    if [ -f nvidia-sleep.sh ]; then
+        install -Dm755 nvidia-sleep.sh "$SYSTEMD_SLEEP/nvidia"
     fi
 
     # NVIDIA's SLA permits redistribution of the userspace libs only if

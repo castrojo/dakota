@@ -1,12 +1,33 @@
+---
+
+name: update-refs
+description: Workflow for updating an existing package version in dakota. Covers tarball ref tracking, git ref tracking, and cargo2 regeneration for Rust elements. Use when bumping package versions, refreshing tracked refs, or regenerating derived lock/vendor data after an upstream release.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
+
 # Updating Package Refs
 
 Load when updating an existing package's version in `projectbluefin/dakota`.
+
+## When to Use
+
+Use when bumping a package version, refreshing a tracked source ref, or regenerating lock/vendor data after an upstream release.
 
 ## When NOT to Use
 
 - Adding a new package → `add-package.md`
 - Bumping junction refs (gnome-build-meta, freedesktop-sdk) → `patch-junctions.md`
 - Debugging a post-update build failure → `debugging.md`
+
+## Core Process
+
+1. Identify the source type and update path.
+2. Change the version metadata or track the source.
+3. Regenerate any derived vendor/lock blocks.
+4. Validate the graph and rebuild the affected element.
+5. Confirm the update changed what you intended, and nothing more.
 
 ## Quick Reference
 
@@ -88,7 +109,45 @@ just build                               # full image build (when unsure)
 
 For `elements/gnome-build-meta.bst` or `elements/freedesktop-sdk.bst` ref updates, see `patch-junctions.md`. Junction bumps require patch verification and are a separate workflow.
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "`source track` did the ref bump, so the job is finished." | Not for Rust and other ecosystems with generated dependency material. |
+| "I'll bump the version and skip the targeted rebuild." | That's how bad ref bumps survive until CI. |
+| "A junction bump is basically the same thing." | It is not; junctions have their own review and maintenance rules. |
+
+## Red Flags
+
+- Ref updated without rebuilding the affected element
+- Generated dependency blocks left stale after the version bump
+- Treating all source types as if they update the same way
+- Using this skill for junction maintenance
+
+## Verification
+
+- [ ] Correct update path was chosen for the source type
+- [ ] Any generated vendor/lock material was refreshed
+- [ ] The affected element graph validates and rebuilds cleanly
+- [ ] The diff reflects the intended update and no unrelated drift
+
 ## Lessons Learned
 
-> Add entries here when you discover a new pattern or fix a recurring mistake.
-> Format: `### <pattern name> (YYYY-MM-DD)`
+### Rust elements: cargo2 sources must be regenerated after every git ref bump (2026-06-07)
+
+After running `just bst source track bluefin/<name>.bst` for a Rust element, the `cargo2` source block in the element is now stale. The old crate versions were generated from the previous `Cargo.lock`. Forgetting to regenerate causes a build failure at the Cargo fetch step ("package not found in vendor directory").
+
+Always regenerate immediately after tracking:
+```bash
+just bst source track bluefin/<name>.bst
+# Then enter sandbox to get the new Cargo.lock:
+just bst shell --build bluefin/<name>.bst
+# Inside sandbox:
+cat Cargo.lock > /host/Cargo.lock  # extract Cargo.lock
+# Back on host:
+python3 files/scripts/generate_cargo_sources.py /host/Cargo.lock
+```
+
+### `just bst source track` only updates `ref:` — it does not regenerate derived sources (2026-06-07)
+
+`bst source track` updates the `ref:` field of `git_repo` and `tar` sources. It does NOT regenerate `cargo2`, `go_module`, or other derived source blocks. Those must be regenerated manually after tracking. Omitting this step is the most common cause of "build passes locally (from cache) but fails from scratch."

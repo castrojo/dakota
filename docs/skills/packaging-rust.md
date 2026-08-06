@@ -1,12 +1,33 @@
+---
+
+name: packaging-rust
+description: Packages a Rust/Cargo project from source using BST cargo2 sources. Covers cargo2 generation, overlap-whitelist for conflicting binaries, and tracking group assignment. Use sudo-rs.bst as the reference template. Use when adding or updating a Rust package that must build from source in Dakota.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
+
 # Packaging Rust Projects
 
 Load when packaging a Rust project with Cargo for dakota/Bluefin BuildStream.
+
+## When to Use
+
+Use when a Rust/Cargo project must be built from source in Dakota and you need the cargo2/offline-vendoring pattern.
 
 ## When NOT to Use
 
 - Go project → `packaging-go.md`
 - Zig project → `packaging-zig.md`
 - Pre-built binary → `packaging-binaries.md`
+
+## Core Process
+
+1. Copy an existing Rust element as the template.
+2. Update metadata, binary naming, and source refs.
+3. Regenerate the cargo2 source block from `Cargo.lock`.
+4. Validate offline dependency completeness before blaming Cargo.
+5. Check overlap and installed binary names explicitly.
 
 ## Overview
 
@@ -17,7 +38,7 @@ Rust elements use `kind: make` with a `cargo2` source block that vendors all cra
 There is no scaffold command. Copy an existing Rust element as a starting point:
 
 ```bash
-cp elements/bluefin/tailscale.bst elements/bluefin/<name>.bst
+cp elements/bluefin/sudo-rs.bst elements/bluefin/<name>.bst
 # Edit name, URL, version, binary name, and regenerate cargo2 sources
 ```
 
@@ -129,7 +150,95 @@ install-commands:
 - [ ] `just validate` passes
 - [ ] `just bst build bluefin/<name>.bst` passes
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll hand-edit the cargo2 block; it's only a few crates." | That's how you ship a broken vendor graph. Generate it. |
+| "Cargo can fetch the rest during build." | Not in BST. Offline means offline. |
+| "If the binary name collides, it's probably fine." | Overlap and replacement behavior must be deliberate. |
+
+## Red Flags
+
+- Hand-written or half-updated cargo2 blocks
+- Missing `Cargo.lock`-driven regeneration after ref bumps
+- Offline build assumptions violated
+- Binary overlap not examined when packaging CLI replacements
+
+## Verification
+
+- [ ] cargo2 sources were regenerated, not hand-maintained
+- [ ] The Rust build is fully offline in BST
+- [ ] Installed binary names and overlap behavior were checked
+- [ ] The element still matches repo Rust packaging conventions
+
 ## Lessons Learned
 
-> Add entries here when you discover a new pattern or fix a recurring mistake.
-> Format: `### <pattern name> (YYYY-MM-DD)`
+### Wrong template: copy `tailscale.bst` (pre-built binary), not for Rust-from-source (2026-06-07)
+
+The "Scaffolding" section above said to copy `tailscale.bst` as a starting point for Rust
+elements. That's wrong — `tailscale.bst` is a pre-built binary element (`kind: manual` without
+cargo). The correct Rust-from-source template is `sudo-rs.bst`:
+
+```bash
+cp elements/bluefin/sudo-rs.bst elements/bluefin/<name>.bst
+```
+
+`sudo-rs.bst` uses `kind: make` + `cargo build --release` and has the correct `cargo2` source
+structure.
+
+### `overlap-whitelist` required when binary conflicts with another element (2026-06-07)
+
+`sudo-rs` replaces the system sudo, so it needs an explicit whitelist for the paths it shares
+with the upstream sudo element from fdsdk. Without it, the OCI image build fails with an
+overlap error:
+
+```yaml
+public:
+  bst:
+    overlap-whitelist:
+    - /usr/bin/sudo
+    - /usr/bin/sudoedit
+    - /usr/lib/debug/usr/bin/sudo.debug
+```
+
+Any Rust element replacing a binary that already exists in fdsdk or gnome-build-meta will need
+this. Use `just bst show --format '%{name}: %{overlap-whitelist}' oci/bluefin.bst` to audit.
+
+### `cargo build --release` alone (no `--locked --offline`) works because cargo2 provides deps (2026-06-07)
+
+The `cargo2` source block vendors all crates offline. BST's hermetic sandbox means no network
+access is possible, so `--offline` is redundant (it will succeed either way). `--locked` is
+still recommended as best practice but `sudo-rs.bst` omits it without issue. The build will
+still fail with a clear error if cargo2 sources are missing or mismatched — treat that as a
+signal to regenerate cargo2 sources, not a reason to add `--offline`.
+
+### Fat LTO + codegen-units=1 causes SIGABRT in BST btrfs overlay on ghost (2026-06-07)
+
+Upstream Rust crates that set `lto = true` + `codegen-units = 1` in their `[profile.release]`
+emit `-C linker-plugin-lto -C codegen-units=1` to each `rustc` invocation. Inside BST's
+btrfs overlay sandbox on ghost (Podman container + btrfs), LLVM's fat LTO codegen pass
+corrupts its own allocator:
+
+```
+realloc(): invalid next size
+rustc ... -C linker-plugin-lto -C codegen-units=1 (signal: 6, SIGABRT)
+```
+
+This is a ghost-environment issue — CI's remote execution server handles fat LTO fine.
+
+**Do NOT fix in the element.** Put the override in ghost's userconfig to avoid
+invalidating the remote CAS artifact (see `ci.md` → *Ghost-specific build fixes*):
+
+```yaml
+# ~/.config/buildstream/userconfig.yaml on ghost
+projects:
+  dakota:
+    elements:
+      bluefin/uutils-coreutils.bst:
+        environment:
+          CARGO_PROFILE_RELEASE_LTO: "thin"
+```
+
+Thin LTO provides most cross-crate optimization benefits with far less memory per
+codegen unit and does not trigger the allocator corruption.

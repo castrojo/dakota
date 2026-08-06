@@ -4,11 +4,11 @@ sources:
 - kind: git_repo
   url: github:projectbluefin/common.git
   track: main
-  ref: v2026.05-76-ga9330df6de70eb44b8b7e0726da302e01dfa0771
+  ref: v2026.06-437-gc49745b3c17016813fd313f138759f78a17dfc09
 - kind: git_module
   url: github:projectbluefin/branding/
   path: bluefin-branding
-  ref: 59ca14a42f5a922159895d37935f70e408a42c7d
+  ref: f5213ca61615bb79a8315fc4c5378a80ca93922e
 - kind: local
   path: files/wallpaper-month
 
@@ -72,4 +72,14 @@ config:
     # Create dconf profile so the distro system database is read
     mkdir -p "%{install-root}%{sysconfdir}/dconf/profile"
     printf 'user-db:user\nsystem-db:distro\n' > "%{install-root}%{sysconfdir}/dconf/profile/user"
+
+    # Dakota is a fresh BuildStream image — users never migrate from legacy-rechunk.
+    # Remove the rechunker-group-fix migration aid that common ships for Bluefin/LTS.
+    rm -f "%{install-root}%{prefix}/bin/rechunker-group-fix"
+    rm -f "%{install-root}%{prefix}/lib/systemd/system/rechunker-group-fix.service"
+    rm -f "%{install-root}%{prefix}/lib/systemd/system-preset/00-rechunker-group-fix.preset"
+
+    # Dakota uses its own ublue-motd (from motd.bst) with a double-display guard.
+    # Remove common's umotd.sh hook to prevent dual MOTD on every login.
+    rm -f "%{install-root}%{sysconfdir}/profile.d/umotd.sh"
   - "%{install-extra}"

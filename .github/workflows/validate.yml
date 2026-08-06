@@ -1,0 +1,56 @@
+name: Validate
+
+on:
+  pull_request:
+    branches: [testing, next]
+  merge_group:
+    branches: [testing, next]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: validate-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check bst2 image pin consistency
+        uses: ./.github/actions/check-bst2-pin
+
+      - name: Setup Just
+        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2
+        with:
+          tool: just
+
+      - name: Restore BST cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/buildstream
+          key: bst-show-${{ github.base_ref || github.ref_name }}-${{ hashFiles('elements/gnome-build-meta.bst', 'elements/freedesktop-sdk.bst', 'Justfile') }}
+          restore-keys: |
+            bst-show-${{ github.base_ref || github.ref_name }}-
+            bst-show-
+
+      - name: Check for dangling submodules
+        run: |
+          if git ls-files --stage | grep -q '^160000'; then
+            echo "ERROR: dangling gitlink(s) found — no submodules allowed in this repo"
+            git ls-files --stage | grep '^160000'
+            exit 1
+          fi
+
+      - name: Validate BST element graph (default)
+        env:
+          BST_FLAGS: -o x86_64_v3 true --no-interactive
+        run: just bst show --deps all oci/bluefin.bst
+
+      - name: Validate BST element graph (nvidia)
+        env:
+          BST_FLAGS: -o x86_64_v3 true --no-interactive
+        run: just bst show --deps all oci/bluefin-nvidia.bst

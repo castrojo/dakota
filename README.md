@@ -1,5 +1,5 @@
 # Bluefin Dakota
-*Dakotaraptor steini* 
+*Dakotaraptor steini*
 
 [Bluefin](https://projectbluefin.io) built on [GNOME OS](https://os.gnome.org/), assembled entirely from source.
 
@@ -9,6 +9,8 @@
     <img src="https://docs.projectbluefin.io/img/cards/dakota-light.png" alt="Bluefin Dakota" width="800">
   </picture>
 </a>
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/projectbluefin/dakota)
 
 **Alpha** — [filing issues](https://github.com/projectbluefin/dakota/issues) is the whole point.
 
@@ -36,7 +38,7 @@ Each Dakota installation is designed to run as a hardware diagnostic lab for its
 
 ## The research behind it
 
-Dakota is human driven with contribution workflows for agents, so if you have tokens to donate, ask it to review issues or PRs, it's useful! The humans make the final decisions. We coordinate this project via a tool called [Hive](https://github.com/kubestellar/hive) from Kubestellar, a CNCF Sandbox project. 
+Dakota is human driven with contribution workflows for agents, so if you have tokens to donate, ask it to review issues or PRs, it's useful! The humans make the final decisions. We coordinate this project via a tool called [Hive](https://github.com/kubestellar/hive) from Kubestellar, a CNCF Sandbox project.
 
 Dakota's feedback loop model is grounded in Andy Anderson's work on autonomous AI-assisted software development. The core finding: the intelligence of a system like this lives not in any single model, but in the infrastructure of instructions, tests, metrics, and feedback loops surrounding it.
 
@@ -47,23 +49,35 @@ Dakota's feedback loop model is grounded in Andy Anderson's work on autonomous A
 
 ## Help shape what gets built
 
-These issues need human judgment before any code is written — design review, domain knowledge, or hardware context the team doesn't have yet:
+**Architects and designers** — these features and epics need your input before any code is written. Design decisions, tradeoffs, and priorities:
 
-### [Issues open for discussion &rarr;](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Astatus%2Fdiscussing)
+### [Open features and epics for discussion &rarr;](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Astatus%2Fdiscussing+label%3Atype%2Ffeature%2Ckind%2Fepic)
 
-Leave a comment, push back on the design, or share how your hardware is affected. When a discussion reaches consensus, a maintainer marks it `status/approved` and it enters the contributor queue.
+Leave a comment, challenge the design, propose alternatives. When a discussion reaches consensus a maintainer marks it `status/approved` and it enters the build queue.
 
-Ready to build something? See the [agent-ready queue](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Aqueue%2Fagent-ready+no%3Aassignee) for issues with clear acceptance criteria and no open questions.
+**Engineers** — these issues have clear acceptance criteria and no open design questions. Pick one up and build it:
 
-## Help shape what gets built
+### [Agent-ready build queue &rarr;](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Astatus%2Fqueued+no%3Aassignee)
 
-These issues need human judgment before any code is written — design review, domain knowledge, or hardware context the team doesn't have yet:
+Comment `/claim` to take an issue. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 
-### [Issues open for discussion &rarr;](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Astatus%2Fdiscussing)
+## Image streams
 
-Leave a comment, push back on the design, or share how your hardware is affected. When a discussion reaches consensus, a maintainer marks it `status/approved` and it enters the contributor queue.
+| Tag | Stream | What it is |
+|---|---|---|
+| `:stable` | Stable | GNOME 50 — production. Daily automated promotion from `:testing`. |
+| `:testing` | Dev | GNOME 50 — daily builds from `testing` branch. Boot-check gated. |
+| `:next` | Rolling | **GNOME master — the bleeding edge.** Tracks gnome-build-meta `master` daily. Auto-updates, zero maintenance. |
+| `:btw` | Rolling | Alias for `:next`. |
 
-Ready to build something? See the [agent-ready queue](https://github.com/projectbluefin/dakota/issues?q=is%3Aopen+label%3Aqueue%2Fagent-ready+no%3Aassignee) for issues with clear acceptance criteria and no open questions.
+`:next` / `:btw` is the arch competitor stream — latest GNOME the moment it lands upstream, built from source with memory-safe defaults (sudo-rs, uutils-coreutils). If you want to run GNOME before everyone else and help find regressions before they reach stable, this is your image.
+
+```bash
+# Switch to the rolling stream
+sudo bootc switch ghcr.io/projectbluefin/dakota:next
+# or
+sudo bootc switch ghcr.io/projectbluefin/dakota:btw
+```
 
 ## ISO Download
 

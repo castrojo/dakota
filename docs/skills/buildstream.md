@@ -1,106 +1,166 @@
-# BuildStream Element Reference
+---
+name: buildstream
+description: BuildStream reference for Dakota element authors. Use when writing, reviewing, or validating `.bst` files and you need the correct kinds, variables, source types, hooks, or graph commands.
+metadata:
+  context7-sources:
+    - /apache/buildstream
+---
 
-Load when writing, editing, or reviewing BuildStream `.bst` element files.
+# BuildStream Reference
+
+## Overview
+
+This skill is the **syntax and mechanics reference** for Dakota's BuildStream work.
+It is not the end-to-end packaging workflow; it is the cheat sheet for getting `.bst` files right.
+
+## When to Use
+
+Use when you need:
+- element kinds and when they apply
+- standard variables and install paths
+- source kind guidance
+- command-hook syntax
+- graph validation or inspection commands
 
 ## When NOT to Use
 
-- End-to-end workflow for adding a new package → `add-package.md`
-- Diagnosing build failures → `debugging.md`
-- Understanding the CI pipeline → `ci.md`
-- Managing junction overrides → `bst-overrides.md`
+- End-to-end package addition → `add-package.md`
+- Diagnosing a failing build → `debugging.md`
+- CI workflow behavior → CI skills
+- Junction override strategy → `bst-overrides.md`
+
+## Core Process
+
+1. **Validate the graph before building.**
+2. **Choose the correct element kind for the source/build system.**
+3. **Use standard install variables and merged-usr paths.**
+4. **Prefer existing repo patterns over invention.**
+5. **Inspect single-element deps and artifacts before escalating to a full image build.**
 
 ## Quick Recipes
 
 | Goal | Command |
-|------|---------|
-| Validate full element graph (no build) | `just validate` |
+|---|---|
+| Validate full graph | `just bst show oci/bluefin.bst` |
 | Inspect single element deps | `just bst show bluefin/<name>.bst` |
 | Build one element | `just bst build bluefin/<name>.bst` |
 | Enter build sandbox | `just bst shell --build bluefin/<name>.bst` |
-| Track a git/tarball ref | `just bst source track bluefin/<name>.bst` |
-| List built element contents | `just bst artifact list-contents bluefin/<name>.bst` |
+| Track a source ref | `just bst source track bluefin/<name>.bst` |
+| List built contents | `just bst artifact list-contents bluefin/<name>.bst` |
 | View build log | `just bst artifact log bluefin/<name>.bst` |
 | Delete cached build | `just bst artifact delete bluefin/<name>.bst` |
-| Full image build | `just build` |
-| All available recipes | `just --list` |
 
-## Variables
+## Key Variables
 
-| Variable | Expands To | Notes |
-|----------|-----------|-------|
-| `%{install-root}` | Staging directory | Always prefix install paths with this |
-| `%{prefix}` | `/usr` | |
-| `%{bindir}` | `/usr/bin` | |
-| `%{indep-libdir}` | `/usr/lib` | For systemd units, presets, sysusers, tmpfiles |
-| `%{datadir}` | `/usr/share` | |
-| `%{sysconfdir}` | `/etc` | Rarely used in GNOME OS elements |
-| `%{install-extra}` | Empty hook | Convention: always end install-commands with this |
-| `%{go-arch}` | `amd64`/`arm64`/`riscv64` | Defined in project.conf per-arch |
-| `%{arch}` | `x86_64`/`aarch64`/`riscv64` | Raw architecture name |
-| `strip-binaries` | Set to `""` to disable | Required for non-ELF elements (fonts, configs, pre-built) |
-| `overlap-whitelist` | `public: bst: overlap-whitelist:` | List of paths allowed to overlap between elements |
+| Variable | Expands to | Notes |
+|---|---|---|
+| `%{install-root}` | staging dir | prefix install paths with this |
+| `%{prefix}` | `/usr` | Dakota is merged-usr |
+| `%{bindir}` | `/usr/bin` | binaries go here |
+| `%{indep-libdir}` | `/usr/lib` | systemd units, presets, tmpfiles, sysusers |
+| `%{datadir}` | `/usr/share` | data files |
+| `%{sysconfdir}` | `/etc` | use sparingly |
+| `%{install-extra}` | trailing hook | convention: end install-commands with it |
+| `strip-binaries` | set to `""` to disable | needed for non-ELF payloads |
 
 ## Element Kinds
 
-| Kind | Use Case |
-|------|----------|
-| `manual` | Custom build/install, pre-built binaries, config files |
-| `meson` | GNOME libraries/apps |
-| `make` | Makefile projects, Go with vendored deps |
-| `autotools` | Legacy C projects |
-| `make` + `cargo2` | Rust projects (see `packaging-rust.md`) |
+| Kind | Use case |
+|---|---|
+| `manual` | custom build/install, pre-built binaries |
+| `meson` | GNOME apps and libraries |
+| `make` | Makefile projects |
+| `autotools` | legacy C projects |
 | `cmake` | CMake projects |
-| `import` | Direct file placement (no build) |
-| `stack` | Dependency aggregation, arch dispatch — **produces zero filesystem output** |
-| `compose` | Layer filtering (exclude debug/devel) |
-| `script` | OCI image assembly |
-| `collect_initial_scripts` | Collect systemd preset/sysusers/tmpfiles from deps |
+| `import` | direct file placement, no build |
+| `stack` | dependency aggregation only; **produces no filesystem output** |
+| `compose` | filesystem-producing layer/filter step |
+| `script` | OCI/image assembly |
+| `junction` | upstream source tree / external project boundary |
 
 ## Source Kinds
 
-| Source Kind | Use Case |
-|-------------|----------|
-| `git_repo` | Most elements |
-| `tar` | Release tarballs. Add `base-dir: ""` if tarball has no wrapping directory. |
-| `remote` | Single file download (not extracted). Use `directory:` to place into a subdirectory. |
-| `local` | Files from repo's `files/` directory |
-| `cargo2` | Rust crate vendoring. Generate with `files/scripts/generate_cargo_sources.py`. |
-| `go_module` | Go module deps (one per dep) |
-| `git_module` | Git submodule checkout |
-| `patch_queue` | Apply patches directory |
-| `gen_cargo_lock` | Generate Cargo.lock from base64 |
+| Source kind | Use case |
+|---|---|
+| `git_repo` | most source trees |
+| `tar` | release tarballs |
+| `remote` | single-file download |
+| `local` | repo-local files |
+| `cargo2` | Rust crate vendoring |
+| `go_module` | Go module deps |
+| `patch_queue` | patch application |
 
-## Command Hooks
+## Command Hook Syntax
 
 | Syntax | Meaning |
-|--------|---------|
-| `(>):` | Append to inherited command list from element kind |
-| `(<):` | Prepend to inherited command list |
-| `(@):` | Include a YAML file |
-| `(?):` | Conditional block (evaluates options like `arch`) |
-
-Convention: always end `install-commands` with `%{install-extra}`.
-
-## BST Weak-Key Caching Bug
-
-**Symptom:** Adding a new package to `deps.bst` (`kind: stack`) does NOT trigger a rebuild of downstream OCI image layers (`kind: compose`). New package is missing from the final image even though `bst show` lists it.
-
-**Root cause:** In BST non-strict mode, the "weak key" for a `kind: stack` element is computed from its **direct dependency names only**, not their content hashes. Changing what a `compose` element transitively depends on via a stack does not change the compose element's weak key → BST considers it cache-hit → skips rebuild.
-
-**Workaround:** Force-invalidate the cache of a `kind: compose` element that directly depends on the stack by making any content change to one of its direct dependencies.
-
-**Real fix:** Use `bst build` in strict mode: `just bst --no-cache-buildtrees build oci/bluefin.bst`.
-
-## ECL / Common Lisp Packaging
-
-| Fact | Detail |
 |---|---|
-| Must use `-std=gnu99` | ECL's `fpe_x86.c` uses bare `asm()` — invalid under `-std=c99` |
-| Must use `--with-gmp=/usr` | Without this, ECL bundles its own GMP and propagates `-fasm` which breaks configure |
-| `ecl --load` spawns `gcc` | Any element calling `ecl --load` at build time needs `gcc` in `build-depends` |
-| `gitlab.common-lisp.net` sources | BST's dulwich cannot parse this git protocol — use `kind: tar` with GitLab archive URL |
+| `(>):` | append to inherited commands |
+| `(<):` | prepend to inherited commands |
+| `(@):` | include YAML |
+| `(?):` | conditional block |
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "`stack` and `compose` are basically the same." | No. `stack` aggregates deps only; `compose` produces filesystem output. |
+| "I'll validate by building; same difference." | `bst show` catches graph/YAML problems faster and cheaper. |
+| "Variables should expand in URLs too." | They do not. Use aliases. |
+| "This path probably goes in `/usr/sbin`." | Dakota is merged-usr. Default to `/usr/bin`. |
+
+## Red Flags
+
+- `kind: stack` where filesystem output is expected
+- source URLs using fake variable expansion
+- install paths outside `/usr`
+- no `%{install-root}` prefix in install commands
+- building before the graph even shows cleanly
+
+## Verification
+
+- [ ] The chosen element kind matches the real build/input model
+- [ ] The graph validates with `just bst show oci/bluefin.bst`
+- [ ] Install paths use standard variables and merged-usr locations
+- [ ] Any filesystem-producing layer uses `compose`, not `stack`
+- [ ] Source and hook syntax follow repo conventions
 
 ## Lessons Learned
 
-> Add entries here when you discover a new pattern or fix a recurring mistake.
-> Format: `### <pattern name> (YYYY-MM-DD)`
+### Option names cannot contain hyphens (2026-06-07)
+
+BST option names only allow alphanumeric characters and underscores. A name like `my-option` silently fails or causes a parse error. Use `my_option` instead. This trips up agents that copy option names from CLI flags (which typically use hyphens).
+
+### Weak-key caching can hide new packages behind a clean build (2026-06-07)
+
+Changing a `kind: stack` dependency does not always invalidate downstream `compose` outputs in non-strict mode. If a package is present in the graph but missing from the final image, inspect cache behavior before assuming the package element is wrong.
+
+### Warm-cache builds still take 90-120 min — this is normal (2026-06-23)
+
+Even with a fully warm remote CAS, a full build takes 90-120 min. Common misconception: "cache is hot = fast build." Actual breakdown:
+
+- **Pull volume:** ~1,400 elements × a few seconds each / 32 parallel fetchers = 15-30 min just for network pulls
+- **Two parallel jobs:** `default` and `nvidia` both run simultaneously, each hitting the same CAS endpoint, halving effective bandwidth per job
+- **OCI assembly is sequential:** After all elements pull/build, `oci/bluefin.bst` runs chunkify + image assembly — single-threaded, typically 20-40 min on its own
+- **Cold elements:** Any junction ref bump (Renovate PRs for distrobox, gnome-build-meta, etc.) invalidates those subtrees → full recompile from source adds 30-90 min
+
+Do not cancel a build under 120 min just because it "seems slow." Historical range for successful builds: 90-150 min.
+
+### 32 fetchers is the right setting for cache.projectbluefin.io (2026-06-23)
+
+`buildstream-ci.conf` uses `fetchers: 32` (BST default is 10). With default + nvidia running simultaneously = 64 concurrent gRPC streams. The CAS server is a Hetzner AX102-U (1 Gbit/s uplink, NVMe Gen4) and can serve 64 streams comfortably. The bottleneck is network bandwidth (~125 MB/s total), not server capacity. Do not reduce fetchers without evidence of server-side saturation.
+
+### overlap-whitelist required for base system file replacement
+
+When an element provides files that are also provided by an upstream junction component (for example, `/etc/subuid` and `/etc/subgid` provided by `freedesktop-sdk.bst:components/shadow.bst`), BuildStream will throw an overlap error during composition (e.g. in `bluefin-runtime.bst`).
+
+To explicitly overwrite these files, you must declare an overlap whitelist in the `public` block of the authoring element:
+
+```yaml
+public:
+  bst:
+    overlap-whitelist:
+    - '%{sysconfdir}/subuid'
+    - '%{sysconfdir}/subgid'
+```
+
+*Note: Replacing base system files destroys the base mappings. Whenever possible, prefer injecting changes dynamically via a hook (e.g., in `common.bst`) rather than completely replacing junction files.*
