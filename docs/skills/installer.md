@@ -147,6 +147,29 @@ git merge upstream/main  # or cherry-pick relevant commits
 > Add entries here when you discover a new pattern or fix a recurring mistake.
 > Format: `### <pattern name> (YYYY-MM-DD)`
 
+### Post-boot installer assertions belong to the ISO E2E owner (2026-08-06)
+
+A request to assert firmware entries, target Flatpak contents, or installed LUKS
+kernel arguments after a fisherman install belongs with the install E2E in
+`projectbluefin/dakota-iso`, not Dakota's image smoke workflow. Dakota's
+`.github/workflows/e2e.yml` delegates to `projectbluefin/testsuite` and does not
+provision a live ISO, run fisherman, or reboot an installed target. Do not add a
+new Dakota-side installer harness just to satisfy an assertion request; first
+route it to the repository that owns the install VM and its post-boot checks.
+
+Evidence to re-check the boundary:
+
+```bash
+git grep -n -i -E 'fisherman|installer|luks|efibootmgr' -- .github/workflows Justfile docs files elements
+gh api repos/projectbluefin/dakota-iso/git/trees/main?recursive=1
+gh api repos/projectbluefin/dakota-iso/contents/justfile
+gh api repos/projectbluefin/dakota-iso/contents/.github/workflows/test-plain-install.yml
+gh api repos/projectbluefin/dakota-iso/contents/.github/workflows/test-luks-install.yml
+```
+
+The Dakota-ISO install flow is the relevant place to add or verify these
+assertions; the current Dakota checkout alone cannot prove them.
+
 ### Installer flatpak leaks to installed system (2026-06-01)
 
 The ISO's `install-flatpaks.sh` installs the bootc-installer as a system Flatpak into `/var/lib/flatpak/`. When fisherman runs `bootc install`, it copies all system flatpaks to the target — including the installer itself. The installed system then shows the installer as an available app.
