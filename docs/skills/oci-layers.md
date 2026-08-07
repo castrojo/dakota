@@ -181,3 +181,22 @@ The OCI assembly script in `elements/oci/bluefin.bst` must run steps in this exa
 4. `build-oci` (assemble image)
 
 Running `ldconfig` after `build-oci` has no effect. Running `build-oci` before `dconf update` produces an image with stale/missing dconf databases.
+
+### Bluefin content shipped in a subdirectory GNOME reads non-recursively (2026-08-07)
+
+`projectbluefin/common` ships the Bluefin user-avatar art under
+`system_files/bluefin/usr/share/pixmaps/faces/bluefin/`, which
+`elements/bluefin/common.bst` copies verbatim into the image. GNOME's account
+avatar chooser scans `/usr/share/pixmaps/faces` non-recursively, so the files
+were present in the image but never visible to users (dakota#353).
+
+`ublue-os/bluefin` handles this in `build_files/base/05-override-install.sh` by
+flattening `faces/bluefin/*` over `faces/` at build time. The BST equivalent is
+a flatten step in the `install-commands` of `elements/bluefin/common.bst`, plus
+an `overlap-whitelist` entry for `/usr/share/pixmaps/faces/*` because the
+flattened filenames collide with the GNOME OS defaults from
+`core/gnome-control-center.bst`.
+
+General rule: when `common` places files in a vendor subdirectory, check whether
+the consuming component actually scans subdirectories before assuming the copy
+is sufficient.
